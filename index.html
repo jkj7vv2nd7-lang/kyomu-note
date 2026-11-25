@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>KyomuNote ― デジタル教務手帳</title>
-<meta name="description" content="教員向けデジタル教務手帳 KyomuNote（第1期）。週案・授業記録・行事を端末の中だけで安全に。">
+<meta name="description" content="教員向けデジタル教務手帳 KyomuNote（第2期）。週案・授業記録・名簿・出欠・提出物・成績を端末の中だけで安全に。">
 <meta property="og:title" content="KyomuNote ― デジタル教務手帳">
 <meta property="og:description" content="週案・授業記録・行事を、端末の中だけで安全に扱う教員向け教務手帳。">
 <meta property="og:type" content="website">
@@ -109,13 +109,28 @@ table.slotgrid td.sel{outline:3px solid var(--gold);outline-offset:-3px}
 .statusseg{display:flex;gap:8px;flex-wrap:wrap}
 .statusseg button{flex:1;min-width:70px;padding:11px 6px;border-radius:10px;border:2px solid var(--line);background:#fff;font-size:16px;min-height:48px}
 .statusseg button.on{border-color:var(--gold);background:#fdf6dd;font-weight:700}
+
+/* 第2期 */
+.seatgrid{display:grid;gap:6px}
+.seatcell{border:1.5px solid var(--line);border-radius:10px;background:#fff;min-height:64px;padding:6px;font-size:14px;cursor:pointer;text-align:center}
+.seatcell.nonseat{background:#d9d9d9;color:#666;cursor:pointer}
+.seatcell.empty{background:#fbf8ef;color:var(--muted)}
+.seatcell.swap1{outline:3px solid var(--gold);outline-offset:-3px}
+.chip{display:inline-block;border-radius:999px;background:#fdeec9;border:1px solid var(--gold);padding:0 8px;font-size:13px;font-weight:700}
+table.plain{border-collapse:collapse;width:100%;background:#fff}
+table.plain th,table.plain td{border:1px solid var(--line);padding:6px 8px;font-size:15px;text-align:left}
+table.plain th{background:var(--paper2);color:var(--navy)}
+.bar{height:14px;background:#e7dfc9;border-radius:7px;overflow:hidden}
+.bar>div{height:100%;background:var(--ok)}
+input.t.smallnum{max-width:110px;display:inline-block}
+.warnbox{background:#fdf0f0;border:1.5px solid var(--danger);border-radius:10px;padding:10px 12px;margin:10px 0}
 </style>
 </head>
 <body>
 
 <header id="appHeader" class="hidden">
   <div class="hrow">
-    <div class="appname">KyomuNote<small>デジタル教務手帳 v1.0.0</small></div>
+    <div class="appname">KyomuNote<small>デジタル教務手帳 v2.0.0</small></div>
     <div class="hspacer"></div>
     <span id="headerYear" class="muted" style="color:#cdbf9d"></span>
     <button class="hbtn" id="privacyBtn" title="プライバシーモード切替">🙈 プライバシー OFF</button>
@@ -139,7 +154,7 @@ table.slotgrid td.sel{outline:3px solid var(--gold);outline-offset:-3px}
   <div class="lockbox">
     <div class="logotitle">
       <div class="big">KyomuNote</div>
-      <div class="sub">デジタル教務手帳 ― 第1期 v1.0.0</div>
+      <div class="sub">デジタル教務手帳 ― 第2期 v2.0.0</div>
       <p class="muted">PINを入力してロックを解除してください。<br>データはこの端末の中だけに保存されます。</p>
     </div>
     <div class="pindots" id="pinDots">○○○○</div>
@@ -440,6 +455,250 @@ function isValidPin(pin) { return typeof pin === "string" && /^\d{4,6}$/.test(pi
 function eventsOnDate(events, dateStr) {
   return (events || []).filter((e) => dateInRange(dateStr, e.startDate, e.endDate));
 }
+
+// ================= 第2期ロジック =================
+
+// ---------- 出欠の状態（本人仕様追加 2026-11-25 で確定した細目） ----------
+// 出席は既定であり記録しない。marks に載るのは異常のある生徒だけ。
+// 各生徒の記録は { status, memo }。memo は「その他（自由記述）」欄であり、
+// 状態が other の場合に限らずどの状態にも併記できる（暗号化対象の本文に含まれる）。
+const ATTENDANCE_STATUSES = [
+  { id: "absent", label: "欠席" },
+  { id: "late", label: "遅刻" },
+  { id: "early", label: "早退" },
+  { id: "official", label: "公欠" },
+  { id: "nurse", label: "保健室" },
+  { id: "bereavement", label: "忌引" },
+  { id: "accident", label: "事故欠" },
+  { id: "other", label: "その他" },
+];
+const ATTENDANCE_STATUS_IDS = ATTENDANCE_STATUSES.map((s) => s.id);
+function attendanceStatusLabel(id) {
+  const s = ATTENDANCE_STATUSES.find((x) => x.id === id);
+  return s ? s.label : "出席";
+}
+function isValidAttendanceStatus(id) {
+  return ATTENDANCE_STATUS_IDS.includes(id);
+}
+// marks の配列（コマごとの本文 marks）から生徒別の回数を集計する
+function summarizeAttendance(marksList) {
+  const out = {};
+  for (const marks of marksList || []) {
+    if (!marks) continue;
+    for (const [studentId, rec] of Object.entries(marks)) {
+      if (!rec || !rec.status) continue;
+      if (!out[studentId]) out[studentId] = { total: 0, byStatus: {} };
+      out[studentId].total += 1;
+      out[studentId].byStatus[rec.status] = (out[studentId].byStatus[rec.status] || 0) + 1;
+    }
+  }
+  return out;
+}
+
+// ---------- 提出物 ----------
+const SUBMISSION_STATUSES = [
+  { id: "submitted", label: "提出済" },
+  { id: "late", label: "遅れて提出" },
+  { id: "resubmit", label: "再提出" },
+  { id: "exempt", label: "免除" },
+];
+function submissionStatusLabel(id) {
+  const s = SUBMISSION_STATUSES.find((x) => x.id === id);
+  return s ? s.label : "未提出";
+}
+const EVAL_KINDS = [
+  { id: "check", label: "○／△／×" },
+  { id: "score", label: "点数（100点換算）" },
+  { id: "grade", label: "A／B／C" },
+  { id: "submitOnly", label: "提出の有無のみ" },
+];
+function evalKindLabel(id) {
+  const k = EVAL_KINDS.find((x) => x.id === id);
+  return k ? k.label : id;
+}
+// 提出状態1件を 0〜1 の達成度に換算する。免除・対象外は null（集計から除外）。
+// state が無い（未提出）場合は 0。score は 100 点満点換算の値として扱う。
+function submissionAchievement(evalKind, state) {
+  if (state && state.status === "exempt") return null;
+  if (!state) return 0;
+  if (evalKind === "submitOnly") return 1;
+  if (evalKind === "check") {
+    if (state.value === "○") return 1;
+    if (state.value === "△") return 0.5;
+    if (state.value === "×") return 0;
+    return 1; // 評価値が無い提出済は「提出した」こと自体を達成とする
+  }
+  if (evalKind === "grade") {
+    if (state.value === "A") return 1;
+    if (state.value === "B") return 0.65;
+    if (state.value === "C") return 0.3;
+    return 1;
+  }
+  if (evalKind === "score") {
+    const v = Number(state.value);
+    if (!Number.isFinite(v)) return 1;
+    return Math.max(0, Math.min(1, v / 100));
+  }
+  return 1;
+}
+// 未提出者リスト：対象名簿のうち states に記録が無い生徒（設計 §3.2）
+function computeUnsubmitted(memberIds, states) {
+  const st = states || {};
+  return (memberIds || []).filter((id) => !(id in st));
+}
+
+// ---------- テスト ----------
+const TEST_KINDS = [
+  { id: "quiz", label: "小テスト" },
+  { id: "exam", label: "定期考査" },
+  { id: "performance", label: "実技・パフォーマンス" },
+];
+function testKindLabel(id) {
+  const k = TEST_KINDS.find((x) => x.id === id);
+  return k ? k.label : id;
+}
+// スコア1件を 0〜1 の達成度へ。未受験（absent）・未入力は null。
+function scoreAchievement(scoreRec, maxScore) {
+  if (!scoreRec || scoreRec.absent) return null;
+  const v = Number(scoreRec.score);
+  if (!Number.isFinite(v)) return null;
+  const max = Number(maxScore);
+  if (!max || max <= 0) return null;
+  return Math.max(0, Math.min(1, v / max));
+}
+
+// ---------- 観点 ----------
+const VIEWPOINTS = [
+  { id: "knowledge", label: "知識・技能" },
+  { id: "thinking", label: "思考・判断・表現" },
+  { id: "attitude", label: "主体的に学習に取り組む態度" },
+];
+const VIEWPOINT_IDS = VIEWPOINTS.map((v) => v.id);
+function viewpointLabel(id) {
+  if (id === "none") return "（観点なし）";
+  const v = VIEWPOINTS.find((x) => x.id === id);
+  return v ? v.label : id;
+}
+function normalizeViewWeights(w) {
+  const src = w || {};
+  const vals = VIEWPOINT_IDS.map((id) => Math.max(0, Number(src[id]) || 0));
+  const sum = vals.reduce((a, b) => a + b, 0);
+  const out = {};
+  VIEWPOINT_IDS.forEach((id, i) => { out[id] = sum > 0 ? vals[i] / sum : 0; });
+  return out;
+}
+
+// ---------- 観点別集計・評定シミュレーション（設計 §3.4） ----------
+// 既定値は「仮置き」。すべて gradeSettings として講座・学期ごとに変更できる。
+function defaultGradeSettings() {
+  return {
+    viewWeights: { knowledge: 0.34, thinking: 0.33, attitude: 0.33 },
+    thresholds: [
+      { min: 0.8, label: "A" },
+      { min: 0.5, label: "B" },
+      { min: 0, label: "C" },
+    ],
+    ratingTable: [
+      { min: 0.85, rating: 5 },
+      { min: 0.7, rating: 4 },
+      { min: 0.5, rating: 3 },
+      { min: 0.3, rating: 2 },
+      { min: 0, rating: 1 },
+    ],
+  };
+}
+function ratingForScore(score, table) {
+  if (score == null || !Number.isFinite(score) || !table) return null;
+  const sorted = table.slice().sort((a, b) => b.min - a.min);
+  for (const row of sorted) if (score >= row.min - 1e-9) return row.rating != null ? row.rating : row.label;
+  return null;
+}
+// materials: [{ viewWeights, achievements: { studentId: 0..1 | null } }]
+// 戻り値: { studentId: { perView: { knowledge: {score, rating} | null, ... }, finalScore, rating } }
+function computeGrades(materials, settings) {
+  const gs = settings || defaultGradeSettings();
+  const viewWeights = normalizeViewWeights(gs.viewWeights);
+  const studentIds = new Set();
+  for (const m of materials || []) {
+    for (const id of Object.keys(m.achievements || {})) studentIds.add(id);
+  }
+  const out = {};
+  for (const sid of studentIds) {
+    const perView = {};
+    for (const vid of VIEWPOINT_IDS) {
+      let num = 0, den = 0;
+      for (const m of materials || []) {
+        const ach = m.achievements ? m.achievements[sid] : null;
+        if (ach == null) continue;
+        const w = Math.max(0, Number((m.viewWeights || {})[vid]) || 0);
+        if (w <= 0) continue;
+        num += ach * w; den += w;
+      }
+      perView[vid] = den > 0
+        ? { score: num / den, rating: ratingForScore(num / den, gs.thresholds) }
+        : null;
+    }
+    let fNum = 0, fDen = 0;
+    for (const vid of VIEWPOINT_IDS) {
+      if (!perView[vid]) continue;
+      fNum += perView[vid].score * viewWeights[vid];
+      fDen += viewWeights[vid];
+    }
+    const finalScore = fDen > 0 ? fNum / fDen : null;
+    out[sid] = { perView, finalScore, rating: ratingForScore(finalScore, gs.ratingTable) };
+  }
+  return out;
+}
+
+// ---------- 進度トラッカー（設計 §3.2 units・§4.1 progress） ----------
+// units: [{id, order, plannedLessons}], lessons: 当該講座の lessons
+// 進度は「単元ごとの実施コマ数（休講を除く）を予定コマ数で頭打ちにした合計」で数値化する。
+function computeProgress(units, lessons) {
+  const sorted = (units || []).slice().sort((a, b) => (a.order || 0) - (b.order || 0));
+  const doneByUnit = {};
+  for (const l of lessons || []) {
+    if (!l || !l.unitId) continue;
+    if (l.status === "cancelled") continue;
+    doneByUnit[l.unitId] = (doneByUnit[l.unitId] || 0) + 1;
+  }
+  let totalPlanned = 0, totalScore = 0, cumulative = 0, currentUnitId = null;
+  const perUnit = sorted.map((u) => {
+    const planned = Math.max(0, Number(u.plannedLessons) || 0);
+    const done = doneByUnit[u.id] || 0;
+    const score = planned > 0 ? Math.min(done, planned) : done;
+    totalPlanned += planned; totalScore += score; cumulative += planned;
+    if (done > 0) currentUnitId = u.id;
+    return { unitId: u.id, name: u.name || "", planned, done, score, cumulativePlanned: cumulative };
+  });
+  return {
+    perUnit, totalPlanned, totalScore, currentUnitId,
+    percent: totalPlanned > 0 ? totalScore / totalPlanned : 0,
+  };
+}
+
+// ---------- 座席 ----------
+function seatKey(row, col) { return `${Number(row)}-${Number(col)}`; }
+function parseSeatKey(key) {
+  const m = /^(-?\d+)-(-?\d+)$/.exec(String(key || ""));
+  return m ? { row: Number(m[1]), col: Number(m[2]) } : null;
+}
+// 有効開始日が直近の配置を選ぶ（設計 §3.2 seatPlans の履歴方式）
+function activeSeatPlan(plans, dateStr) {
+  const cands = (plans || []).filter((p) => p && p.effectiveFrom && p.effectiveFrom <= dateStr);
+  if (!cands.length) return null;
+  return cands.slice().sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? 1 : -1))[0];
+}
+
+// ---------- 生徒の表示名（プライバシーモード対応） ----------
+// person: { name, displayLabel, no }（no は出席番号。memberships 側から渡す）
+// プライバシーON時は氏名を出さず、出席番号／イニシャル表示にする（設計 §3.3-4・§5.3）
+function studentDisplayName(person, privacyOn) {
+  const p = person || {};
+  const noLabel = p.no != null && p.no !== "" ? `#${pad2(Number(p.no))}` : "";
+  if (privacyOn) return noLabel || p.displayLabel || "（名称非表示）";
+  return p.name || p.displayLabel || noLabel || "（名称なし）";
+}
+
 function uuid() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
   return "id-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
@@ -458,15 +717,26 @@ const LOGIC = {
   maskText, maskFreeText, applyPrivacyMask, shouldHideSection,
   shouldAutoLock, isAutoLockDue, shouldLockAfterHidden, pinWaitSeconds, isValidPin,
   eventsOnDate, uuid,
+  ATTENDANCE_STATUSES, ATTENDANCE_STATUS_IDS, attendanceStatusLabel, isValidAttendanceStatus, summarizeAttendance,
+  SUBMISSION_STATUSES, submissionStatusLabel, EVAL_KINDS, evalKindLabel, submissionAchievement, computeUnsubmitted,
+  TEST_KINDS, testKindLabel, scoreAchievement,
+  VIEWPOINTS, VIEWPOINT_IDS, viewpointLabel, normalizeViewWeights,
+  defaultGradeSettings, ratingForScore, computeGrades,
+  computeProgress, seatKey, parseSeatKey, activeSeatPlan, studentDisplayName,
 };
 
 // KyomuNote db.mjs — IndexedDB アクセス層（素の IDB API の Promise ラッパー）
-// DB名 KyomuNoteDB version 1 / 7ストア（設計 §3）
+// DB名 KyomuNoteDB version 2 / 第1期7ストア＋第2期12ストア（PHASE2_DESIGN §3.1・§3.5）
 // ブラウザ用モジュール。build.mjs が export を外して index.html に連結する。
 
 const DB_NAME = "KyomuNoteDB";
-const DB_VERSION = 1;
-const STORE_NAMES = ["meta", "years", "terms", "courses", "baseSlots", "lessons", "events"];
+const DB_VERSION = 2;
+const STORE_NAMES = [
+  "meta", "years", "terms", "courses", "baseSlots", "lessons", "events",
+  "groups", "students", "memberships", "seatPlans", "attendance",
+  "assignments", "submissionRecords", "tests", "scoreRecords",
+  "observations", "units", "gradeSettings", "gradeSnapshots",
+];
 
 let _dbPromise = null;
 
@@ -495,9 +765,52 @@ function openDB() {
         events.createIndex("byYear", "yearId", { unique: false });
         events.createIndex("byStart", "startDate", { unique: false });
       }
-      // 将来の version ではここに oldVersion 分岐でストア追加のみ行う（既存データは消さない）
+      if (oldVersion < 2) {
+        // 第2期：ストアを「追加するだけ」。既存7ストアとそのデータには一切触れない（設計 §3.5）
+        const groups = db.createObjectStore("groups", { keyPath: "id" });
+        groups.createIndex("byYear", "yearId", { unique: false });
+        const students = db.createObjectStore("students", { keyPath: "id" });
+        students.createIndex("byYear", "yearId", { unique: false });
+        const memberships = db.createObjectStore("memberships", { keyPath: ["groupId", "studentId"] });
+        memberships.createIndex("byStudent", "studentId", { unique: false });
+        const seatPlans = db.createObjectStore("seatPlans", { keyPath: "id" });
+        seatPlans.createIndex("byGroup", "groupId", { unique: false });
+        seatPlans.createIndex("byYear", "yearId", { unique: false });
+        const attendance = db.createObjectStore("attendance", { keyPath: "id" });
+        attendance.createIndex("byCourseDate", ["courseId", "date"], { unique: false });
+        attendance.createIndex("byDate", "date", { unique: false });
+        const assignments = db.createObjectStore("assignments", { keyPath: "id" });
+        assignments.createIndex("byCourse", "courseId", { unique: false });
+        assignments.createIndex("byDue", "dueDate", { unique: false });
+        const submissionRecords = db.createObjectStore("submissionRecords", { keyPath: "id" });
+        submissionRecords.createIndex("byCourse", "courseId", { unique: false });
+        const tests = db.createObjectStore("tests", { keyPath: "id" });
+        tests.createIndex("byCourse", "courseId", { unique: false });
+        tests.createIndex("byDate", "date", { unique: false });
+        const scoreRecords = db.createObjectStore("scoreRecords", { keyPath: "id" });
+        scoreRecords.createIndex("byCourse", "courseId", { unique: false });
+        const observations = db.createObjectStore("observations", { keyPath: "id" });
+        observations.createIndex("byStudent", "studentId", { unique: false });
+        observations.createIndex("byCourse", "courseId", { unique: false });
+        observations.createIndex("byDate", "date", { unique: false });
+        const units = db.createObjectStore("units", { keyPath: "id" });
+        units.createIndex("byCourse", "courseId", { unique: false });
+        db.createObjectStore("gradeSettings", { keyPath: "id" });
+        db.createObjectStore("gradeSnapshots", { keyPath: "id" });
+      }
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      const db = req.result;
+      // 他タブで新しい version が開かれたら接続を閉じてアプリ側へ通知する（設計 §3.5）
+      db.onversionchange = () => {
+        try { db.close(); } catch (e) {}
+        _dbPromise = null;
+        if (typeof window !== "undefined" && typeof window.__KYOMU_ON_VERSIONCHANGE__ === "function") {
+          window.__KYOMU_ON_VERSIONCHANGE__();
+        }
+      };
+      resolve(db);
+    };
     req.onerror = () => { _dbPromise = null; reject(req.error); };
   });
   return _dbPromise;
@@ -543,6 +856,10 @@ async function dbGetRange(store, indexName, start, end) {
   const s = await _store(store, "readonly");
   return _reqToPromise(s.index(indexName).getAll(IDBKeyRange.bound(start, end)));
 }
+async function dbGetByKeyRange(store, startKey, endKey) {
+  const s = await _store(store, "readonly");
+  return _reqToPromise(s.getAll(IDBKeyRange.bound(startKey, endKey)));
+}
 
 // 高レベルヘルパー
 async function getMeta(key) { return dbGet("meta", key); }
@@ -558,13 +875,38 @@ async function countLessonsByCourse(courseId) {
   return dbCountByIndex("lessons", "byCourse", courseId);
 }
 
+// 第2期ヘルパー
+async function getGroupsByYear(yearId) { return dbGetByIndex("groups", "byYear", yearId); }
+async function getStudentsByYear(yearId) { return dbGetByIndex("students", "byYear", yearId); }
+async function getMembershipsByGroup(groupId) {
+  return dbGetByKeyRange("memberships", [groupId, ""], [groupId, "\uffff"]);
+}
+async function getMembershipsByStudent(studentId) {
+  return dbGetByIndex("memberships", "byStudent", studentId);
+}
+async function getSeatPlansByGroup(groupId) { return dbGetByIndex("seatPlans", "byGroup", groupId); }
+async function getAttendanceByDate(date) { return dbGetByIndex("attendance", "byDate", date); }
+async function getAttendanceByCourseRange(courseId, startDate, endDate) {
+  return dbGetRange("attendance", "byCourseDate", [courseId, startDate], [courseId, endDate]);
+}
+async function getAssignmentsByCourse(courseId) { return dbGetByIndex("assignments", "byCourse", courseId); }
+async function getTestsByCourse(courseId) { return dbGetByIndex("tests", "byCourse", courseId); }
+async function getObservationsByStudent(studentId) { return dbGetByIndex("observations", "byStudent", studentId); }
+async function getObservationsByCourse(courseId) { return dbGetByIndex("observations", "byCourse", courseId); }
+async function getUnitsByCourse(courseId) { return dbGetByIndex("units", "byCourse", courseId); }
+
 const KyomuDB = {
   DB_NAME, DB_VERSION, STORE_NAMES,
   open: openDB, openDB,
   get: dbGet, put: dbPut, delete: dbDelete, remove: dbDelete, getAll: dbGetAll,
   getByIndex: dbGetByIndex, countByIndex: dbCountByIndex, getRange: dbGetRange,
+  getByKeyRange: dbGetByKeyRange,
   getMeta, putMeta, getLessonsInRange, getTermsByYear, getCoursesByYear,
   getBaseSlotsByYear, getEventsByYear, countLessonsByCourse,
+  getGroupsByYear, getStudentsByYear, getMembershipsByGroup, getMembershipsByStudent,
+  getSeatPlansByGroup, getAttendanceByDate, getAttendanceByCourseRange,
+  getAssignmentsByCourse, getTestsByCourse, getObservationsByStudent,
+  getObservationsByCourse, getUnitsByCourse,
 };
 
 </script>
@@ -581,12 +923,19 @@ const AREAS = [
   { id: "lesson", name: "授業記録を開く", desc: "計画（単元・ねらい・展開・板書・準備物）と実践の記録", icon: "📖", phase: 1, enabled: true, showOnHome: false },
   { id: "day", name: "この日の詳細", desc: "その日の一言メモ・行事・コマ一覧", icon: "📝", phase: 1, enabled: true, showOnHome: false },
   { id: "settings", name: "設定", desc: "年度・学期・講座・基本時間割・PIN・自動ロック", icon: "⚙", phase: 1, enabled: true, showOnHome: true },
-  // 第2期以降: roster / attendance / submissions / grades / student / duty / club をここに追加する
+  { id: "roster", name: "名簿", desc: "学級・講座グループの名簿（氏名／イニシャル運用）", icon: "👥", phase: 2, enabled: true, showOnHome: true },
+  { id: "seats", name: "座席表", desc: "通常／考査の座席配置と座席からのクイック記録", icon: "💺", phase: 2, enabled: true, showOnHome: false },
+  { id: "check", name: "時限チェック", desc: "そのコマの出欠入力とクイック記録（所見メモ）", icon: "✅", phase: 2, enabled: true, showOnHome: false },
+  { id: "submissions", name: "提出物", desc: "課題ごとの提出チェックと未提出者リスト", icon: "📥", phase: 2, enabled: true, showOnHome: false },
+  { id: "student", name: "生徒ページ", desc: "1人の生徒の出欠・提出・スコア・所見メモの集約", icon: "🧑", phase: 2, enabled: true, showOnHome: false },
+  { id: "grades", name: "成績・集計", desc: "テスト記録・観点別集計・評定シミュレーション・転記用一覧", icon: "📊", phase: 2, enabled: true, showOnHome: true },
+  { id: "progress", name: "進度トラッカー", desc: "講座ごとの単元マスタと到達位置の比較", icon: "🧭", phase: 2, enabled: true, showOnHome: false },
+  // 第3期以降: student カルテ詳細 / duty / club をここに追加する
 ];
 function areaById(id){ return AREAS.find(a=>a.id===id) || null; }
 
 // ===== 状態 =====
-const APP_VERSION = "1.0.0";
+const APP_VERSION = "2.0.0";
 const SETTINGS_KEY = "kyomunote.settings.v1";
 const KEYCHECK_PLAIN = "KyomuNote-KeyCheck-v1";
 const state = {
@@ -597,6 +946,11 @@ const state = {
   privacyOn: false, lastActive: Date.now(), hiddenAt: null,
   lessonsCache: [], eventsCache: [],
   wizard: null, slotEdit: null,
+  groups: [], students: [], memberships: [],
+  selectedGroupId: null, selectedAssignmentId: null, selectedTestId: null,
+  selectedStudentId: null, selectedTermId: null,
+  checkStudentId: null, seatKind: "normal", seatPlanId: null, seatEditMode: false,
+  seatSwapMode: false, seatSwapFirst: null, gradesTab: "score",
 };
 window.__KYOMU__ = { db: KyomuDB, logic: LOGIC, state };
 
@@ -641,6 +995,55 @@ async function verifyKeyCheck(key, keyCheck){
     return new TextDecoder().decode(plain) === KEYCHECK_PLAIN;
   } catch(e){ return false; }
 }
+// ===== 第2期：レコード単位暗号化レイヤー（設計 §3.3・§5.1）=====
+async function encryptRecord(key, obj){
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = await crypto.subtle.encrypt({ name:"AES-GCM", iv }, key, new TextEncoder().encode(JSON.stringify(obj)));
+  return { iv: b64encode(iv.buffer), data: b64encode(data) };
+}
+async function decryptRecord(key, enc){
+  const plain = await crypto.subtle.decrypt({ name:"AES-GCM", iv: new Uint8Array(b64decode(enc.iv)) }, key, b64decode(enc.data));
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+async function decryptMerge(rec){
+  if (!rec) return null;
+  if (!rec.enc) return rec;
+  try {
+    const body = await decryptRecord(state.key, rec.enc);
+    const plain = Object.assign({}, rec); delete plain.enc;
+    return Object.assign(plain, body);
+  } catch(e){
+    const plain = Object.assign({}, rec); delete plain.enc;
+    plain.decryptError = true;
+    return plain;
+  }
+}
+async function putEnc(store, plain, body){
+  if (!state.key) throw new Error("鍵がありません（ロック中です）");
+  const enc = await encryptRecord(state.key, body || {});
+  const rec = Object.assign({}, plain, { enc, level: 2, updatedAt: new Date().toISOString() });
+  await dbPut(store, rec);
+  return rec;
+}
+async function getEnc(store, id){
+  const rec = await dbGet(store, id);
+  return rec ? decryptMerge(rec) : null;
+}
+async function getAllEnc(store){
+  const all = await dbGetAll(store);
+  const out = [];
+  for (const r of all) out.push(await decryptMerge(r));
+  return out;
+}
+async function getEncByIndex(store, idx, q){
+  const all = await dbGetByIndex(store, idx, q);
+  const out = [];
+  for (const r of all) out.push(await decryptMerge(r));
+  return out;
+}
+window.__KYOMU__.crypto = { encryptRecord, decryptRecord };
+window.__KYOMU__.enc = { putEnc, getEnc, getAllEnc, getEncByIndex };
+
 async function createSecurity(pin){
   const salt = b64encode(crypto.getRandomValues(new Uint8Array(16)).buffer);
   const iterations = 600000;
@@ -701,6 +1104,9 @@ async function tryUnlock(){
   }
 }
 function lockApp(msg){ showLock(msg || "ロックしました。"); }
+window.__KYOMU_ON_VERSIONCHANGE__ = function(){
+  lockApp("別のタブで新しい版の KyomuNote が開かれました。データの競合を避けるため、この画面をロックします。お手数ですが、ページを再読み込みしてから PIN を入力し直してください。");
+};
 
 // 自動ロック
 function touchActivity(){ state.lastActive = Date.now(); }
@@ -743,12 +1149,43 @@ document.addEventListener("visibilitychange", ()=>{
 
 // ===== データ読み込み =====
 async function loadYearData(){
-  if (!state.currentYearId) { state.terms=[]; state.courses=[]; state.baseSlots=[]; return; }
+  if (!state.currentYearId) { state.terms=[]; state.courses=[]; state.baseSlots=[]; state.groups=[]; state.students=[]; state.memberships=[]; return; }
   state.terms = (await getTermsByYear(state.currentYearId)).sort((a,b)=>a.startDate<b.startDate?-1:1);
   state.courses = await getCoursesByYear(state.currentYearId);
   state.baseSlots = await getBaseSlotsByYear(state.currentYearId);
   state.eventsCache = await getEventsByYear(state.currentYearId);
+  // 第2期：名簿グループ・生徒（復号してキャッシュ）・所属
+  state.groups = await getGroupsByYear(state.currentYearId);
+  const rawStudents = await getStudentsByYear(state.currentYearId);
+  state.students = [];
+  for (const r of rawStudents) state.students.push(await decryptMerge(r));
+  state.memberships = [];
+  for (const g of state.groups){
+    const ms = await getMembershipsByGroup(g.id);
+    for (const m of ms) state.memberships.push(m);
+  }
 }
+function studentById(id){ return state.students.find(x=>x.id===id) || null; }
+function groupMembers(groupId){
+  return state.memberships.filter(m=>m.groupId===groupId)
+    .slice().sort((a,b)=>(a.no||0)-(b.no||0))
+    .map(m=>({ membership: m, student: studentById(m.studentId) }))
+    .filter(x=>x.student);
+}
+function displayNameOf(student, groupId){
+  if (!student) return "（名称なし）";
+  let no = null;
+  if (groupId){
+    const m = state.memberships.find(x=>x.groupId===groupId && x.studentId===student.id);
+    if (m) no = m.no;
+  }
+  return studentDisplayName({ name: student.name, displayLabel: student.displayLabel, no }, state.privacyOn);
+}
+function courseGroup(course){
+  if (!course || !course.groupId) return null;
+  return state.groups.find(g=>g.id===course.groupId) || null;
+}
+function mask2(s){ return maskText(s, 2, state.privacyOn); }
 async function enterApp(){
   document.getElementById("appHeader").classList.remove("hidden");
   document.getElementById("viewRoot").classList.remove("hidden");
@@ -795,6 +1232,13 @@ function render(){
   else if (state.view==="settings") renderSettings(root);
   else if (state.view==="day") renderDay(root);
   else if (state.view==="lesson") renderLesson(root);
+  else if (state.view==="roster") renderRoster(root);
+  else if (state.view==="seats") renderSeats(root);
+  else if (state.view==="check") renderCheck(root);
+  else if (state.view==="submissions") renderSubmissions(root);
+  else if (state.view==="student") renderStudent(root);
+  else if (state.view==="grades") renderGrades(root);
+  else if (state.view==="progress") renderProgress(root);
 }
 
 // ===== 週案ビュー =====
@@ -888,7 +1332,9 @@ async function saveLesson(lesson){
 
 function openSlotSheet(date, period){
   state.selectedDate = date; state.selectedPeriod = period;
-  getOrDraftLesson(date, period).then(lesson=>{
+  getOrDraftLesson(date, period).then(async (lesson)=>{
+    let slotAssignments = [];
+    if (lesson.courseId) slotAssignments = (await getAssignmentsByCourse(lesson.courseId)).filter(a=>a.lessonId===lesson.id);
     const course = state.courses.find(c=>c.id===lesson.courseId);
     const dow = dayOfWeek(date);
     const base = state.baseSlots.find(b=>b.dayOfWeek===dow && b.period===period);
@@ -908,6 +1354,8 @@ function openSlotSheet(date, period){
         ${LESSON_STATUSES.map(s=>`<button data-st="${s.id}" class="${lesson.status===s.id?"on":""}">${s.label}</button>`).join("")}
       </div>
       <div style="margin-top:18px;display:grid;gap:10px">${areaBtns}
+      <button class="btn gold" id="sheetGoCheck" style="width:100%;font-size:20px;padding:16px">✅ 出欠・クイック記録を開く</button>
+      ${slotAssignments.map(a=>`<button class="btn ghost" data-sheet-sub="${a.id}" style="width:100%">📥 提出物チェックを開く（${esc(a.title)}）</button>`).join("")}
       <button class="btn small ghost" id="sheetClose">閉じる</button></div>
     `);
     const memoEl = document.getElementById("sheetShortMemo");
@@ -923,6 +1371,10 @@ function openSlotSheet(date, period){
       openSlotSheet(date, period); render();
     }));
     document.getElementById("sheetGoLesson").addEventListener("click", ()=>{ closeSheet(); state.view="lesson"; render(); });
+    document.getElementById("sheetGoCheck").addEventListener("click", ()=>{ closeSheet(); state.view="check"; render(); });
+    document.querySelectorAll("[data-sheet-sub]").forEach(b=>b.addEventListener("click", ()=>{
+      closeSheet(); state.selectedCourseId = lesson.courseId; state.selectedAssignmentId = b.dataset.sheetSub; state.view="submissions"; render();
+    }));
     const gd = document.getElementById("sheetGoDay");
     if (gd) gd.addEventListener("click", ()=>{ closeSheet(); state.view="day"; render(); });
     document.getElementById("sheetClose").addEventListener("click", ()=>{ closeSheet(); render(); });
@@ -965,6 +1417,7 @@ async function renderLesson(root){
       <textarea class="t" data-lfield="shortMemo" ${state.privacyOn?"disabled":""}>${esc(state.privacyOn?mask(lesson.shortMemo):(lesson.shortMemo||""))}</textarea>
       <h3 class="sect">計画</h3>
       ${fieldHtml("unit","単元名",false)}
+      <div id="unitSelectWrap"></div>
       ${fieldHtml("goal","ねらい",false)}
       ${freeFields.filter(f=>["plan","board"].includes(f[0])).map(f=>fieldHtml(f[0],f[1],f[2])).join("")}
       ${fieldHtml("materials","配布物・準備物・ICTリンク",false)}
@@ -985,8 +1438,30 @@ async function renderLesson(root){
     if (el) el.textContent = "保存済み " + new Date().toLocaleTimeString("ja-JP");
   };
   root.querySelectorAll("[data-lfield]").forEach(el=>{
-    el.addEventListener("input", ()=>{ lesson[el.dataset.lfield] = el.value; save(); });
+    el.addEventListener("input", ()=>{
+      lesson[el.dataset.lfield] = el.value;
+      if (el.dataset.lfield==="unit") lesson.unitId = null; // 手で変えたら単元マスタとの紐付けは外す
+      save();
+    });
   });
+  // 単元マスタからの選択（併設セレクト）。選ぶと unitId と unit（名称の写し）を設定する
+  if (lesson.courseId){
+    const units = (await getUnitsByCourse(lesson.courseId)).slice().sort((a,b)=>(a.order||0)-(b.order||0));
+    const wrap = document.getElementById("unitSelectWrap");
+    if (wrap && units.length){
+      wrap.innerHTML = `<label class="f">単元マスタから選ぶ</label>
+        <select class="t" id="lessonUnitSel"><option value="">（自由記述のまま）</option>
+        ${units.map(u=>`<option value="${u.id}" ${lesson.unitId===u.id?"selected":""}>${esc(u.name)}</option>`).join("")}</select>`;
+      document.getElementById("lessonUnitSel").addEventListener("change", (e)=>{
+        const u = units.find(x=>x.id===e.target.value);
+        if (!u) return;
+        lesson.unitId = u.id; lesson.unit = u.name;
+        const unitInput = root.querySelector('[data-lfield="unit"]');
+        if (unitInput) unitInput.value = u.name;
+        save();
+      });
+    }
+  }
   document.getElementById("lessonCourse").addEventListener("change", (e)=>{ lesson.courseId = e.target.value || null; save(); });
   document.getElementById("lessonStatus").addEventListener("change", (e)=>{ lesson.status = e.target.value; save(); });
 }
@@ -1053,6 +1528,17 @@ async function renderHome(root){
 async function renderToday(root){
   const today = todayString();
   const cells = await buildDayCells(today);
+  const attToday = {};
+  for (const r of await getAttendanceByDate(today)){
+    const dec = await decryptMerge(r);
+    attToday[r.id] = dec;
+  }
+  const attSummary = (cell)=>{
+    const rec = attToday[lessonKey(cell.date, cell.period)];
+    if (!rec || rec.decryptError || !rec.marks) return null;
+    const n = Object.keys(rec.marks).length;
+    return { recorded: true, abnormal: n };
+  };
   const nowP = currentPeriodCode();
   const evs = eventsOnDate(state.eventsCache, today).filter(isRealEvent);
   const dn = dayNoteOf(today);
@@ -1076,8 +1562,10 @@ async function renderToday(root){
         ${c.status!=="normal"?`【${esc(statusLabel(c.status))}】`:""}
         ${c.lesson&&c.lesson.unit?`<br>単元：${esc(c.lesson.unit)}`:""}
         ${c.lesson&&c.lesson.shortMemo?`<br>✎ ${esc(mask(c.lesson.shortMemo))}`:""}
+        ${(()=>{ const a = attSummary(c); return a ? `<br>出欠：記録あり${a.abnormal?` ／ 異常 ${a.abnormal} 件`:" ／ 全員出席"}` : `<br><span class="muted">出欠：未記録</span>`; })()}
         <div class="rowflex" style="margin-top:6px">
           <button class="btn small gold" data-t-lesson="${c.period}">授業記録を開く</button>
+          <button class="btn small" data-t-check="${c.period}">出欠チェック</button>
           <button class="btn small ghost" data-t-sheet="${c.period}">コマシート</button>
         </div>
       </div>`).join("")}`;
@@ -1087,6 +1575,7 @@ async function renderToday(root){
   document.getElementById("tWeek").onclick = ()=>{ state.weekMonday = mondayOfWeek(today); state.view="week"; render(); };
   root.querySelectorAll("[data-t-lesson]").forEach(b=>b.onclick=()=>{ state.selectedDate=today; state.selectedPeriod=Number(b.dataset.tLesson); state.view="lesson"; render(); });
   root.querySelectorAll("[data-t-sheet]").forEach(b=>b.onclick=()=>openSlotSheet(today, Number(b.dataset.tSheet)));
+  root.querySelectorAll("[data-t-check]").forEach(b=>b.onclick=()=>{ state.selectedDate=today; state.selectedPeriod=Number(b.dataset.tCheck); state.view="check"; render(); });
   root.querySelectorAll("[data-ev]").forEach(el=>el.onclick=()=>{ const ev = state.eventsCache.find(e=>e.id===el.dataset.ev); if (ev) openEventSheet(ev); });
 }
 
@@ -1115,6 +1604,13 @@ async function renderCourse(root){
     <button class="btn small ghost" id="coHome">🏠 ホーム</button></div>
     <h2 class="viewtitle">講座の記録 ― ${esc(course.subject)} ${esc(course.name)}（${esc(course.classLabel)}）</h2>
     <p class="muted">週${course.weeklyPeriods}コマ ／ 年間標準 ${course.standardHours} 時間 ／ 記録済み ${lessons.length} コマ（byCourse 索引で時系列表示）</p>
+    ${(()=>{ const g = courseGroup(course); return `<p>紐づく名簿グループ：${g?`<strong>${esc(g.name)}</strong>（${g.rosterMode==="initials"?"イニシャル運用":"氏名運用"}）`:`<span class="muted">未設定（設定画面の講座一覧で選べます）</span>`}</p>`; })()}
+    <div class="rowflex" style="margin-bottom:12px">
+      <button class="btn small gold" id="coGoProgress">🧭 進度トラッカー</button>
+      <button class="btn small" id="coGoSubmissions">📥 提出物</button>
+      <button class="btn small" id="coGoGrades">📊 成績・集計</button>
+      ${course.groupId?`<button class="btn small ghost" id="coGoRoster">👥 名簿を見る</button>`:""}
+    </div>
     ${lessons.length? lessons.map(l=>`
       <div class="listitem" data-cl="${l.id}">
         <span class="t">${esc(l.date)}（${WEEKDAY_LABELS[dayOfWeek(l.date)]}） ${esc(periodLabel(l.period))}</span>
@@ -1126,6 +1622,11 @@ async function renderCourse(root){
       </div>`).join("") : `<div class="card">この講座の授業記録はまだありません。週案や今日の画面のコマから記録を始められます。</div>`}`;
   document.getElementById("coBack").onclick = ()=>{ state.view="courses"; render(); };
   document.getElementById("coHome").onclick = ()=>{ state.view="home"; render(); };
+  document.getElementById("coGoProgress").onclick = ()=>{ state.view="progress"; render(); };
+  document.getElementById("coGoSubmissions").onclick = ()=>{ state.view="submissions"; render(); };
+  document.getElementById("coGoGrades").onclick = ()=>{ state.view="grades"; render(); };
+  const cgr = document.getElementById("coGoRoster");
+  if (cgr) cgr.onclick = ()=>{ state.selectedGroupId = course.groupId; state.view="roster"; render(); };
   root.querySelectorAll("[data-cl]").forEach(el=>el.onclick=()=>{
     const l = lessons.find(x=>x.id===el.dataset.cl);
     state.selectedDate = l.date; state.selectedPeriod = l.period; state.view="lesson"; render();
@@ -1136,6 +1637,10 @@ async function renderCourse(root){
 async function renderDay(root){
   const date = state.selectedDate;
   const cells = await buildDayCells(date);
+  const attDay = {};
+  for (const r of await getAttendanceByDate(date)){
+    attDay[r.id] = await decryptMerge(r);
+  }
   const dn = dayNoteOf(date);
   const evs = eventsOnDate(state.eventsCache, date).filter(isRealEvent);
   root.innerHTML = `
@@ -1163,8 +1668,25 @@ async function renderDay(root){
         ${c.lesson&&c.lesson.shortMemo?`<br>✎ ${esc(mask(c.lesson.shortMemo))}`:""}
         <div class="rowflex" style="margin-top:6px">
           <button class="btn small gold" data-d-lesson="${c.period}">授業記録を開く</button>
+          <button class="btn small" data-d-check="${c.period}">出欠チェック</button>
           <button class="btn small ghost" data-d-sheet="${c.period}">コマシート</button>
-        </div></div>`).join("")}`;
+        </div></div>`).join("")}
+    <div class="card"><h3 class="sect" style="margin-top:0">④ その日の出欠</h3>
+    ${cells.map(c=>{
+      const rec = attDay[lessonKey(date, c.period)];
+      if (!rec) return `<p><strong>${esc(periodLabel(c.period))}</strong> ${esc(cellTitle(c))}：<span class="muted">未記録</span> <button class="btn small ghost" data-d-check="${c.period}">チェックへ</button></p>`;
+      if (rec.decryptError) return `<p><strong>${esc(periodLabel(c.period))}</strong> ${esc(cellTitle(c))}：<span style="color:var(--danger)">復号できませんでした</span></p>`;
+      const marks = rec.marks || {};
+      const ids = Object.keys(marks);
+      if (!ids.length) return `<p><strong>${esc(periodLabel(c.period))}</strong> ${esc(cellTitle(c))}：全員出席 <button class="btn small ghost" data-d-check="${c.period}">チェックへ</button></p>`;
+      const names = ids.map(sid=>{
+        const st = studentById(sid);
+        const grp = rec.groupId;
+        return `${esc(st?displayNameOf(st, grp):"（不明）")}（${esc(attendanceStatusLabel(marks[sid].status))}）`;
+      }).join("、");
+      return `<p><strong>${esc(periodLabel(c.period))}</strong> ${esc(cellTitle(c))}：異常 ${ids.length} 件 ― ${names} <button class="btn small ghost" data-d-check="${c.period}">チェックへ</button></p>`;
+    }).join("")}
+    </div>`;
   document.getElementById("dHome").onclick=()=>{ state.view="home"; render(); };
   document.getElementById("dWeek").onclick=()=>{ state.weekMonday = mondayOfWeek(date); state.view="week"; render(); };
   document.getElementById("dMonth").onclick=()=>{ state.monthCursor = date.slice(0,7); state.view="month"; render(); };
@@ -1174,6 +1696,7 @@ async function renderDay(root){
   root.querySelectorAll("[data-dev]").forEach(el=>el.onclick=()=>{ const ev = state.eventsCache.find(e=>e.id===el.dataset.dev); if (ev) openEventSheet(ev); });
   root.querySelectorAll("[data-d-lesson]").forEach(b=>b.onclick=()=>{ state.selectedPeriod=Number(b.dataset.dLesson); state.view="lesson"; render(); });
   root.querySelectorAll("[data-d-sheet]").forEach(b=>b.onclick=()=>openSlotSheet(date, Number(b.dataset.dSheet)));
+  root.querySelectorAll("[data-d-check]").forEach(b=>b.onclick=()=>{ state.selectedPeriod=Number(b.dataset.dCheck); state.view="check"; render(); });
   const saveDn = async ()=>{
     const title = document.getElementById("dnTitle").value;
     const memo = document.getElementById("dnMemo").value;
@@ -1374,7 +1897,12 @@ async function renderSettings(root){
     </div>
     <div class="card"><h3 class="sect" style="margin-top:0">講座の管理</h3>
       ${state.courses.map(c=>`<div class="listitem"><span class="t">${esc(c.subject)} ${esc(c.name)}</span>（${esc(c.classLabel)}）週${c.weeklyPeriods}コマ／標準${c.standardHours}時間
-        <button class="btn small danger" data-course-del="${c.id}" style="float:right">削除</button></div>`).join("")}
+        <button class="btn small danger" data-course-del="${c.id}" style="float:right">削除</button>
+        <br><label style="font-size:15px">名簿グループ：
+        <select data-course-group="${c.id}" style="padding:8px;border:1.5px solid var(--line);border-radius:8px">
+          <option value="">（なし）</option>
+          ${state.groups.map(g=>`<option value="${g.id}" ${c.groupId===g.id?"selected":""}>${esc(g.name)}</option>`).join("")}
+        </select></label></div>`).join("")}
       <label class="f">教科</label><input class="t" id="ncSubject" placeholder="数学">
       <label class="f">講座名</label><input class="t" id="ncName" placeholder="数学I">
       <label class="f">クラス</label><input class="t" id="ncClass" placeholder="2年A組">
@@ -1391,9 +1919,11 @@ async function renderSettings(root){
       <label class="f">自動ロック（無操作）</label>
       <select class="t" id="autoLockSel" style="max-width:200px">${[1,2,3,4,5,6,7,8,9,10].map(m=>`<option value="${m}" ${autoLockMinutes()===m?"selected":""}>${m}分</option>`).join("")}</select>
       <label class="f"><input type="checkbox" id="privacyDefault" ${s.privacyDefault?"checked":""} style="width:22px;height:22px;vertical-align:middle"> 起動時のプライバシーモードを既定で ON にする</label>
+      <label class="f"><input type="checkbox" id="csvEnabled" ${s.csvEnabled?"checked":""} style="width:22px;height:22px;vertical-align:middle"> 成績・集計の転記用一覧で CSV 出力を有効にする（既定は OFF）</label>
+      <p class="muted">CSV は平文のファイルとして端末に残ります。有効化には PIN の再入力が必要です。バックアップ用途には使わないでください（暗号化アーカイブは第4期で扱います）。</p>
     </div>
     <div class="card"><h3 class="sect" style="margin-top:0">このアプリについて</h3>
-      <p>KyomuNote（デジタル教務手帳）第1期 バージョン <strong>${APP_VERSION}</strong><br>
+      <p>KyomuNote（デジタル教務手帳）第2期 バージョン <strong>${APP_VERSION}</strong><br>
       <span class="muted">データはこの端末の IndexedDB（KyomuNoteDB）にのみ保存され、外部へ送信されません。</span></p>
       <button class="btn gold" id="updateBtn">最新の版に更新する</button></div>`;
   document.getElementById("sHome").onclick=()=>{ state.view="home"; render(); };
@@ -1433,6 +1963,13 @@ async function renderSettings(root){
     await dbDelete("courses", b.dataset.courseDel);
     state.courses = await getCoursesByYear(state.currentYearId); render();
   });
+  root.querySelectorAll("[data-course-group]").forEach(sel=>sel.addEventListener("change", async ()=>{
+    const c = state.courses.find(x=>x.id===sel.dataset.courseGroup);
+    if (!c) return;
+    c.groupId = sel.value || null;
+    await dbPut("courses", c);
+    toast("名簿グループを保存しました");
+  }));
   bindSlotEditor(root, "set", ()=>renderSettings(root));
   document.getElementById("changePin").onclick = async ()=>{
     const cur = document.getElementById("pinCur").value;
@@ -1447,6 +1984,31 @@ async function renderSettings(root){
   };
   document.getElementById("autoLockSel").onchange = (e)=>{ saveSettings({ autoLockMin: Number(e.target.value) }); toast(`自動ロックを ${e.target.value} 分に設定しました`); };
   document.getElementById("privacyDefault").onchange = (e)=>{ saveSettings({ privacyDefault: e.target.checked }); };
+  document.getElementById("csvEnabled").onchange = (e)=>{
+    if (!e.target.checked){ saveSettings({ csvEnabled: false }); toast("CSV出力を OFF にしました"); return; }
+    e.target.checked = false; // 照合が通るまで ON にしない
+    openSheet(`
+      <h3 class="sect" style="margin-top:0">CSV出力を有効にしますか</h3>
+      <div class="warnbox"><strong>警告：</strong>CSV は暗号化されていない平文ファイルです。書き出したファイルは端末に残り、他のアプリから読まれる可能性があります。転記が済んだらファイル自体を削除してください。</div>
+      <p>有効化には現在の PIN の再入力が必要です。</p>
+      <label class="f">現在のPIN</label>
+      <input class="t" id="csvPin" type="password" inputmode="numeric" maxlength="6" style="font-size:22px;max-width:220px">
+      <div class="lockmsg" id="csvPinMsg"></div>
+      <div class="rowflex" style="margin-top:12px">
+        <button class="btn gold" id="csvPinOk">PINを照合して有効化</button>
+        <button class="btn ghost" id="csvPinCancel">やめる</button></div>`);
+    document.getElementById("csvPinCancel").onclick = ()=>closeSheet();
+    document.getElementById("csvPinOk").onclick = async ()=>{
+      const pin = document.getElementById("csvPin").value;
+      const key = await deriveKey(pin, state.security.salt, state.security.iterations);
+      if (!(await verifyKeyCheck(key, state.security.keyCheck))){
+        document.getElementById("csvPinMsg").textContent = "PINが違います。有効化しませんでした。";
+        return;
+      }
+      saveSettings({ csvEnabled: true });
+      closeSheet(); toast("CSV出力を有効にしました"); render();
+    };
+  };
   document.getElementById("updateBtn").onclick = ()=>{
     const url = new URL(location.href); url.searchParams.set("v", Date.now());
     location.replace(url.toString());
@@ -1546,12 +2108,1162 @@ function renderWizard(){
   };
 }
 
+
+// ===== 第2期 共通ヘルパー =====
+function backHomeBtn(id){ return `<button class="btn small ghost" id="${id}">🏠 ホーム</button>`; }
+function bindHome(id){ const el=document.getElementById(id); if(el) el.onclick=()=>{ state.view="home"; render(); }; }
+function courseOptions(selectedId){
+  return `<option value="">（講座を選ぶ）</option>` + state.courses.map(c=>`<option value="${c.id}" ${selectedId===c.id?"selected":""}>${esc(c.subject)} ${esc(c.name)}（${esc(c.classLabel)}）</option>`).join("");
+}
+function groupOptions(selectedId){
+  return `<option value="">（グループを選ぶ）</option>` + state.groups.map(g=>`<option value="${g.id}" ${selectedId===g.id?"selected":""}>${esc(g.name)}</option>`).join("");
+}
+function viewpointOptions(selected){
+  return [`<option value="none" ${selected==="none"?"selected":""}>（観点なし）</option>`]
+    .concat(VIEWPOINTS.map(v=>`<option value="${v.id}" ${selected===v.id?"selected":""}>${esc(v.label)}</option>`)).join("");
+}
+async function addObservation(studentId, courseId, lessonId, text, viewpoint){
+  if (!text || !text.trim()){ toast("所見メモの本文を入力してください"); return false; }
+  await putEnc("observations",
+    { id: uuid(), studentId, courseId: courseId||null, lessonId: lessonId||null, date: todayString(), yearId: state.currentYearId },
+    { text: text.trim(), viewpoint: viewpoint||"none", source: "" });
+  return true;
+}
+async function reloadStudents(){
+  const raw = await getStudentsByYear(state.currentYearId);
+  state.students = [];
+  for (const r of raw) state.students.push(await decryptMerge(r));
+}
+async function reloadMemberships(){
+  state.memberships = [];
+  for (const g of state.groups){
+    const ms = await getMembershipsByGroup(g.id);
+    for (const m of ms) state.memberships.push(m);
+  }
+}
+async function saveStudentBody(student, bodyPatch){
+  const cur = { name: student.name, kana: student.kana, displayLabel: student.displayLabel, memo: student.memo };
+  const body = Object.assign({}, cur, bodyPatch||{});
+  // undefined の項目は持たない（initials運用で氏名を保存しないための表現）
+  for (const k of Object.keys(body)) if (body[k]===undefined) delete body[k];
+  await putEnc("students", { id: student.id, yearId: student.yearId }, body);
+  Object.assign(student, body);
+  if (bodyPatch && bodyPatch.name===undefined && ("name" in (bodyPatch||{}))){}
+  return student;
+}
+
+// ===== 名簿（roster）=====
+async function renderRoster(root){
+  const groups = state.groups;
+  const sel = groups.find(g=>g.id===state.selectedGroupId) || null;
+  let h = `<div class="rowflex">${backHomeBtn("rHome")}<button class="btn small ghost" id="rSeats">💺 座席表へ</button></div>
+  <h2 class="viewtitle">名簿 ― ${state.currentYearId}年度</h2>`;
+  h += `<h3 class="sect">グループ一覧</h3>`;
+  if (!groups.length) h += `<div class="card">グループがまだありません。下のフォームから作成してください。</div>`;
+  h += groups.map(g=>{
+    const n = state.memberships.filter(m=>m.groupId===g.id).length;
+    return `<div class="listitem" data-rgroup="${g.id}"><span class="t">${esc(g.name)}</span>
+      <span class="muted">種別：${g.kind==="course"?"講座グループ":"学級"} ／ 運用：${g.rosterMode==="initials"?"イニシャル／番号のみ":"氏名"} ／ ${n}名</span>
+      <div class="rowflex" style="margin-top:6px"><button class="btn small gold" data-rgroup-open="${g.id}">名簿を開く</button>
+      <button class="btn small ghost" data-rgroup-seats="${g.id}">座席表</button></div></div>`;
+  }).join("");
+  h += `<div class="card"><h3 class="sect" style="margin-top:0">グループを作成</h3>
+    <label class="f">名前</label><input class="t" id="rgName" placeholder="例：2年A組／数学I・選択α">
+    <label class="f">種別</label><select class="t" id="rgKind"><option value="class">学級</option><option value="course">講座グループ</option></select>
+    <label class="f">講座（種別が「講座グループ」のとき）</label><select class="t" id="rgCourse">${courseOptions(null)}</select>
+    <label class="f">運用モード</label><select class="t" id="rgMode"><option value="full">氏名を保存する（full）</option><option value="initials">イニシャル／番号のみ（initials・氏名は保存しません）</option></select>
+    <button class="btn gold" id="rgCreate" style="margin-top:12px">グループを作成</button></div>`;
+
+  if (sel){
+    const members = groupMembers(sel.id);
+    const others = state.students.filter(st=>!state.memberships.some(m=>m.groupId===sel.id && m.studentId===st.id));
+    h += `<div class="card"><h3 class="sect" style="margin-top:0">名簿編集 ― ${esc(sel.name)}</h3>
+    <p class="muted">種別：${sel.kind==="course"?"講座グループ":"学級"} ／ 運用モード：${sel.rosterMode==="initials"?"イニシャル／番号のみ":"氏名"}</p>
+    <label class="f">運用モードの切替</label>
+    <div class="rowflex"><select class="t" id="rgModeSel" style="max-width:320px">
+      <option value="full" ${sel.rosterMode==="full"?"selected":""}>氏名を保存する（full）</option>
+      <option value="initials" ${sel.rosterMode==="initials"?"selected":""}>イニシャル／番号のみ（initials）</option></select>
+    <button class="btn small" id="rgModeApply">切り替える</button></div>
+    <h3 class="sect">所属生徒（出席番号順）</h3>`;
+    if (!members.length) h += `<p class="muted">所属生徒はまだいません。</p>`;
+    h += members.map(({membership:m, student:st})=>{
+      return `<div class="listitem" style="cursor:default">
+        <div class="rowflex">
+          <span>番号 <input class="t smallnum" type="number" data-mem-no="${st.id}" value="${m.no==null?"":m.no}" style="max-width:80px"></span>
+          ${sel.rosterMode==="full"?`<span style="flex:1;min-width:150px">氏名 <input class="t" data-mem-name="${st.id}" value="${esc(st.name||"")}"></span>
+          <span style="flex:1;min-width:130px">ふりがな <input class="t" data-mem-kana="${st.id}" value="${esc(st.kana||"")}"></span>`:""}
+          <span style="flex:1;min-width:120px">イニシャル <input class="t" data-mem-label="${st.id}" value="${esc(st.displayLabel||"")}"></span>
+          <button class="btn small ghost" data-mem-page="${st.id}">生徒ページ</button>
+          <button class="btn small danger" data-mem-remove="${st.id}">所属を外す</button>
+        </div></div>`;
+    }).join("");
+    h += `<h3 class="sect">生徒を追加</h3>
+      ${sel.rosterMode==="full"
+        ? `<label class="f">氏名</label><input class="t" id="raName" placeholder="氏名">
+           <label class="f">ふりがな</label><input class="t" id="raKana" placeholder="ふりがな">`
+        : `<p class="muted">このグループはイニシャル運用です。氏名・ふりがなは入力欄自体がなく、保存もされません。</p>`}
+      <label class="f">イニシャル／コードネーム</label><input class="t" id="raLabel" placeholder="例：S.T">
+      <label class="f">出席番号</label><input class="t" id="raNo" type="number" style="max-width:120px" value="${members.length? (Math.max(...members.map(x=>Number(x.membership.no)||0))+1) : 1}">
+      <div style="margin-top:10px"><button class="btn gold" id="raAdd">この生徒を追加</button></div>
+      ${others.length?`<h3 class="sect">既存の生徒を追加</h3>
+      <div class="rowflex"><select class="t" id="raExisting" style="flex:1">${others.map(st=>{
+        const g0 = state.memberships.find(m=>m.studentId===st.id);
+        return `<option value="${st.id}">${esc(displayNameOf(st, g0?g0.groupId:null))}</option>`;}).join("")}</select>
+      <button class="btn" id="raAddExisting">選んで追加</button></div>`:""}
+    </div>`;
+  }
+  root.innerHTML = h;
+  bindHome("rHome");
+  document.getElementById("rSeats").onclick = ()=>{ state.view="seats"; render(); };
+  root.querySelectorAll("[data-rgroup-open]").forEach(b=>b.onclick=()=>{ state.selectedGroupId=b.dataset.rgroupOpen; render(); });
+  root.querySelectorAll("[data-rgroup-seats]").forEach(b=>b.onclick=()=>{ state.selectedGroupId=b.dataset.rgroupSeats; state.view="seats"; render(); });
+  document.getElementById("rgCreate").onclick = async ()=>{
+    const name = document.getElementById("rgName").value.trim();
+    if (!name){ toast("グループ名を入力してください"); return; }
+    const kind = document.getElementById("rgKind").value;
+    const courseId = document.getElementById("rgCourse").value || null;
+    const g = { id: uuid(), yearId: state.currentYearId, kind, name,
+      courseId: kind==="course" ? courseId : null,
+      rosterMode: document.getElementById("rgMode").value, level: 1 };
+    await dbPut("groups", g);
+    state.groups.push(g);
+    if (kind==="course" && courseId){
+      const c = state.courses.find(x=>x.id===courseId);
+      if (c){ c.groupId = g.id; await dbPut("courses", c); }
+    }
+    state.selectedGroupId = g.id;
+    toast("グループを作成しました"); render();
+  };
+  if (!sel) return;
+  // 名簿編集の自動保存（change時）
+  root.querySelectorAll("[data-mem-no]").forEach(el=>el.addEventListener("change", async ()=>{
+    const m = state.memberships.find(x=>x.groupId===sel.id && x.studentId===el.dataset.memNo);
+    if (!m) return;
+    m.no = Number(el.value);
+    await dbPut("memberships", m);
+    toast("出席番号を保存しました"); render();
+  }));
+  const bindStudentField = (attr, field)=>{
+    root.querySelectorAll(`[${attr}]`).forEach(el=>el.addEventListener("change", async ()=>{
+      const st = studentById(el.getAttribute(attr));
+      if (!st) return;
+      const patch = {}; patch[field] = el.value;
+      await saveStudentBody(st, patch);
+      toast("保存しました");
+    }));
+  };
+  bindStudentField("data-mem-name","name");
+  bindStudentField("data-mem-kana","kana");
+  bindStudentField("data-mem-label","displayLabel");
+  root.querySelectorAll("[data-mem-remove]").forEach(b=>b.onclick=async ()=>{
+    await dbDelete("memberships", [sel.id, b.dataset.memRemove]);
+    state.memberships = state.memberships.filter(m=>!(m.groupId===sel.id && m.studentId===b.dataset.memRemove));
+    toast("所属を外しました（生徒の記録自体は残ります）"); render();
+  });
+  root.querySelectorAll("[data-mem-page]").forEach(b=>b.onclick=()=>{ state.selectedStudentId=b.dataset.memPage; state.view="student"; render(); });
+  document.getElementById("raAdd").onclick = async ()=>{
+    const label = document.getElementById("raLabel").value.trim();
+    const body = { displayLabel: label, memo: "" };
+    if (sel.rosterMode==="full"){
+      body.name = document.getElementById("raName").value.trim();
+      body.kana = document.getElementById("raKana").value.trim();
+      if (!body.name && !label){ toast("氏名かイニシャルを入力してください"); return; }
+    } else {
+      if (!label){ toast("イニシャルを入力してください"); return; }
+    }
+    const st = { id: uuid(), yearId: state.currentYearId };
+    await putEnc("students", { id: st.id, yearId: st.yearId }, body);
+    const full = Object.assign({}, st, body);
+    state.students.push(full);
+    const m = { groupId: sel.id, studentId: st.id, no: Number(document.getElementById("raNo").value)||null, yearId: state.currentYearId };
+    await dbPut("memberships", m);
+    state.memberships.push(m);
+    toast("生徒を追加しました"); render();
+  };
+  const addEx = document.getElementById("raAddExisting");
+  if (addEx) addEx.onclick = async ()=>{
+    const sid = document.getElementById("raExisting").value;
+    if (!sid) return;
+    const nos = groupMembers(sel.id).map(x=>Number(x.membership.no)||0);
+    const m = { groupId: sel.id, studentId: sid, no: (nos.length?Math.max(...nos):0)+1, yearId: state.currentYearId };
+    await dbPut("memberships", m);
+    state.memberships.push(m);
+    toast("既存の生徒を追加しました"); render();
+  };
+  document.getElementById("rgModeApply").onclick = async ()=>{
+    const target = document.getElementById("rgModeSel").value;
+    if (target===sel.rosterMode){ toast("すでにそのモードです"); return; }
+    if (target==="full"){
+      sel.rosterMode = "full"; await dbPut("groups", sel);
+      toast("氏名モードに切り替えました"); render(); return;
+    }
+    // full -> initials：確認シートつき
+    openSheet(`
+      <h3 class="sect" style="margin-top:0">イニシャル運用へ切り替えますか</h3>
+      <div class="warnbox"><strong>氏名・ふりがなが消える操作です。</strong><br>
+      このグループをイニシャル運用に切り替えると、このグループだけに所属する生徒（他の氏名グループに所属していない生徒）の<strong>氏名・ふりがなを消去</strong>します。元に戻せません。<br>
+      他に氏名モードのグループへ所属している生徒の氏名は消えません。</div>
+      <div class="rowflex"><button class="btn danger" id="modeConfirm">氏名を消去して切り替える</button>
+      <button class="btn ghost" id="modeCancel">やめる</button></div>`);
+    document.getElementById("modeCancel").onclick = ()=>closeSheet();
+    document.getElementById("modeConfirm").onclick = async ()=>{
+      sel.rosterMode = "initials"; await dbPut("groups", sel);
+      const memberIds = [...new Set(state.memberships.filter(m=>m.groupId===sel.id).map(m=>m.studentId))];
+      for (const sid of memberIds){
+        const myGroups = state.memberships.filter(m=>m.studentId===sid).map(m=>m.groupId);
+        const allInitials = myGroups.every(gid=>{
+          const g = state.groups.find(x=>x.id===gid);
+          return g && g.rosterMode==="initials";
+        });
+        if (allInitials){
+          const st = studentById(sid);
+          if (st && (st.name || st.kana)){
+            await putEnc("students", { id: st.id, yearId: st.yearId }, { displayLabel: st.displayLabel||"", memo: st.memo||"" });
+            delete st.name; delete st.kana;
+          }
+        }
+      }
+      closeSheet(); toast("イニシャル運用に切り替えました"); render();
+    };
+  };
+}
+
+// ===== 座席表（seats）=====
+async function loadSeatPlans(groupId, kind){
+  const raw = await getSeatPlansByGroup(groupId);
+  const out = [];
+  for (const r of raw) if (r.kind===kind) out.push(await decryptMerge(r));
+  return out.sort((a,b)=> a.effectiveFrom<b.effectiveFrom?1:-1);
+}
+async function renderSeats(root){
+  const groups = state.groups;
+  if (!state.selectedGroupId && groups.length) state.selectedGroupId = groups[0].id;
+  const group = groups.find(g=>g.id===state.selectedGroupId) || null;
+  let plans = [], plan = null;
+  if (group){
+    plans = await loadSeatPlans(group.id, state.seatKind);
+    plan = plans.find(p=>p.id===state.seatPlanId) || activeSeatPlan(plans, todayString()) || plans[0] || null;
+    if (plan) state.seatPlanId = plan.id;
+  }
+  const flip = !!settings().seatFlip;
+  let h = `<div class="rowflex">${backHomeBtn("seHome")}<button class="btn small ghost" id="seRoster">👥 名簿へ</button></div>
+  <h2 class="viewtitle">座席表</h2>
+  <div class="card"><label class="f">グループ</label>
+  <select class="t" id="seGroup">${groupOptions(state.selectedGroupId)}</select>
+  <label class="f">種別</label>
+  <div class="statusseg" id="seKind">
+    <button data-kind="normal" class="${state.seatKind==="normal"?"on":""}">通常</button>
+    <button data-kind="exam" class="${state.seatKind==="exam"?"on":""}">考査</button>
+  </div>`;
+  if (group){
+    h += `<label class="f">配置（履歴）</label>
+    <select class="t" id="sePlan"><option value="">（配置を選ぶ）</option>
+      ${plans.map(p=>`<option value="${p.id}" ${plan&&p.id===plan.id?"selected":""}>${esc(p.name||"配置")}（${esc(p.effectiveFrom)}〜）</option>`).join("")}</select>
+    <div class="rowflex" style="margin-top:10px">
+      <button class="btn small ${state.seatEditMode?"gold":"ghost"}" id="seModeToggle">${state.seatEditMode?"編集中（タップで割当）":"閲覧モード（タップでクイックパネル）"}</button>
+      <button class="btn small ${state.seatSwapMode?"gold":"ghost"}" id="seSwapToggle">入れ替えモード ${state.seatSwapMode?"ON":"OFF"}</button>
+      <label style="font-size:15px"><input type="checkbox" id="seFlip" ${flip?"checked":""} style="width:22px;height:22px;vertical-align:middle"> 前後反転（教卓側を下に）</label>
+    </div>
+    <h3 class="sect">新しい配置を作る</h3>
+    <div class="rowflex">
+      <span>行 <input class="t smallnum" type="number" id="spRows" value="6"></span>
+      <span>列 <input class="t smallnum" type="number" id="spCols" value="6"></span>
+      <span style="flex:1;min-width:160px">名前 <input class="t" id="spName" placeholder="例：5月・通常配置"></span>
+      <span>有効開始日 <input class="t" type="date" id="spFrom" value="${todayString()}" style="max-width:180px"></span>
+      <button class="btn small gold" id="spCreate">配置を作成</button>
+    </div></div>`;
+  } else {
+    h += `<p class="muted">グループがありません。名簿でグループを作成してください。</p></div>`;
+  }
+  if (group && plan){
+    const seats = plan.seats || {}, nonSeats = plan.nonSeats || [];
+    const rowIdx = [];
+    for (let r=0;r<plan.rows;r++) rowIdx.push(r);
+    const dispRows = flip ? rowIdx.slice().reverse() : rowIdx;
+    h += `<div class="card"><h3 class="sect" style="margin-top:0">${esc(plan.name||"配置")}（${plan.kind==="exam"?"考査":"通常"}・${esc(plan.effectiveFrom)}〜）</h3>
+    <p class="muted">${flip?"教卓は下側です":"教卓は上側です"}${state.seatSwapMode?" ／ 入れ替えモード：2つのセルを順にタップしてください":""}</p>
+    <div class="seatgrid" style="grid-template-columns:repeat(${plan.cols},1fr)">`;
+    for (const r of dispRows){
+      for (let c=0;c<plan.cols;c++){
+        const key = seatKey(r,c);
+        const isNon = nonSeats.includes(key);
+        const sid = seats[key];
+        const st = sid ? studentById(sid) : null;
+        const label = isNon ? "（座席なし）" : (st ? esc(displayNameOf(st, group.id)) : "空席");
+        const cls = isNon ? "nonseat" : (st ? "" : "empty");
+        const swapCls = state.seatSwapFirst===key ? " swap1" : "";
+        h += `<div class="seatcell ${cls}${swapCls}" data-seat="${key}">${label}<br><span class="muted" style="font-size:11px">${key}</span></div>`;
+      }
+    }
+    h += `</div></div>`;
+  } else if (group){
+    h += `<div class="card">この種別の配置はまだありません。「新しい配置を作る」から作成してください。</div>`;
+  }
+  root.innerHTML = h;
+  bindHome("seHome");
+  document.getElementById("seRoster").onclick = ()=>{ state.view="roster"; render(); };
+  document.getElementById("seGroup").onchange = (e)=>{ state.selectedGroupId=e.target.value||null; state.seatPlanId=null; render(); };
+  root.querySelectorAll("#seKind button").forEach(b=>b.onclick=()=>{ state.seatKind=b.dataset.kind; state.seatPlanId=null; render(); });
+  if (!group) return;
+  const planSel = document.getElementById("sePlan");
+  if (planSel) planSel.onchange = (e)=>{ state.seatPlanId=e.target.value||null; render(); };
+  document.getElementById("seModeToggle").onclick = ()=>{ state.seatEditMode=!state.seatEditMode; render(); };
+  document.getElementById("seSwapToggle").onclick = ()=>{ state.seatSwapMode=!state.seatSwapMode; state.seatSwapFirst=null; render(); };
+  document.getElementById("seFlip").onchange = (e)=>{ saveSettings({ seatFlip: e.target.checked }); render(); };
+  document.getElementById("spCreate").onclick = async ()=>{
+    const rows = Math.max(1, Number(document.getElementById("spRows").value)||1);
+    const cols = Math.max(1, Number(document.getElementById("spCols").value)||1);
+    const rec = { id: uuid(), groupId: group.id, yearId: state.currentYearId, kind: state.seatKind,
+      name: document.getElementById("spName").value.trim() || "配置",
+      effectiveFrom: document.getElementById("spFrom").value || todayString(), rows, cols };
+    await putEnc("seatPlans", rec, { seats: {}, nonSeats: [] });
+    state.seatPlanId = rec.id;
+    toast("配置を作成しました"); render();
+  };
+  if (!plan) return;
+  const savePlan = async (seats, nonSeats)=>{
+    await putEnc("seatPlans",
+      { id: plan.id, groupId: plan.groupId, yearId: plan.yearId, kind: plan.kind, name: plan.name, effectiveFrom: plan.effectiveFrom, rows: plan.rows, cols: plan.cols },
+      { seats, nonSeats });
+  };
+  root.querySelectorAll("[data-seat]").forEach(cell=>cell.addEventListener("click", async ()=>{
+    const key = cell.dataset.seat;
+    const seats = Object.assign({}, plan.seats||{});
+    const nonSeats = (plan.nonSeats||[]).slice();
+    if (state.seatSwapMode){
+      if (!state.seatSwapFirst){ state.seatSwapFirst = key; render(); return; }
+      const first = state.seatSwapFirst;
+      const a = seats[first], b = seats[key];
+      if (b) seats[first]=b; else delete seats[first];
+      if (a) seats[key]=a; else delete seats[key];
+      state.seatSwapFirst = null;
+      await savePlan(seats, nonSeats);
+      toast("座席を入れ替えました"); render(); return;
+    }
+    if (state.seatEditMode){
+      const members = groupMembers(group.id);
+      openSheet(`
+        <h3 class="sect" style="margin-top:0">座席 ${esc(key)} の割当</h3>
+        ${nonSeats.includes(key)?`<p class="muted">このセルは現在「座席でないセル」です。</p>`:""}
+        <div style="display:grid;gap:8px">
+        ${members.map(({student:st})=>`<button class="btn ghost" data-asn="${st.id}">${esc(displayNameOf(st, group.id))}</button>`).join("")}
+        <button class="btn" id="asnEmpty">空席にする</button>
+        ${nonSeats.includes(key)?`<button class="btn" id="asnSeat">座席に戻す</button>`:`<button class="btn" id="asnNon">座席でないセルにする</button>`}
+        <button class="btn small ghost" id="asnCancel">キャンセル</button></div>`);
+      document.getElementById("asnCancel").onclick = ()=>closeSheet();
+      root.ownerDocument.querySelectorAll("[data-asn]").forEach(b=>b.onclick=async ()=>{
+        seats[key] = b.dataset.asn;
+        await savePlan(seats, nonSeats.filter(k=>k!==key));
+        closeSheet(); toast("割り当てました"); render();
+      });
+      document.getElementById("asnEmpty").onclick = async ()=>{ delete seats[key]; await savePlan(seats, nonSeats); closeSheet(); render(); };
+      const asnNon = document.getElementById("asnNon");
+      if (asnNon) asnNon.onclick = async ()=>{ delete seats[key]; await savePlan(seats, [...new Set(nonSeats.concat([key]))]); closeSheet(); render(); };
+      const asnSeat = document.getElementById("asnSeat");
+      if (asnSeat) asnSeat.onclick = async ()=>{ await savePlan(seats, nonSeats.filter(k=>k!==key)); closeSheet(); render(); };
+      return;
+    }
+    // 閲覧モード：クイックパネル
+    const sid = seats[key];
+    if (!sid || nonSeats.includes(key)){ toast("空席です（編集は「編集中」に切り替えてください）"); return; }
+    openSeatQuickPanel(group, sid);
+  }));
+}
+async function openSeatQuickPanel(group, studentId){
+  const st = studentById(studentId);
+  if (!st) return;
+  const today = todayString();
+  const cells = await buildDayCells(today);
+  const groupCourses = state.courses.filter(c=>c.groupId===group.id || group.courseId===c.id);
+  const myCells = cells.filter(c=>c.courseId && groupCourses.some(x=>x.id===c.courseId));
+  let attHtml = "";
+  for (const c of myCells){
+    const lessonId = lessonKey(today, c.period);
+    const rec = await getEnc("attendance", lessonId);
+    const cur = rec && rec.marks && rec.marks[studentId] ? rec.marks[studentId].status : null;
+    attHtml += `<div class="listitem" style="cursor:default"><span class="t">${esc(periodLabel(c.period))} ${esc(cellTitle(c))}</span>
+      現在：${cur?esc(attendanceStatusLabel(cur)):"出席"}
+      <div class="statusseg" style="margin-top:6px">
+        <button data-qp-clear="${lessonId}">出席に戻す</button>
+        ${ATTENDANCE_STATUSES.map(x=>`<button data-qp-lid="${lessonId}" data-qp-status="${x.id}" class="${cur===x.id?"on":""}">${x.label}</button>`).join("")}
+      </div></div>`;
+  }
+  openSheet(`
+    <h3 class="sect" style="margin-top:0">${esc(displayNameOf(st, group.id))} ― クイックパネル</h3>
+    <p class="muted">${esc(group.name)} ／ ${today} の出欠</p>
+    ${attHtml || `<p class="muted">今日このグループの講座のコマはありません。</p>`}
+    <h3 class="sect">所見メモを追加</h3>
+    <textarea class="t" id="qpObsText" placeholder="授業中の気づき・活躍など"></textarea>
+    <label class="f">観点タグ</label><select class="t" id="qpObsView">${viewpointOptions("none")}</select>
+    <div class="rowflex" style="margin-top:12px">
+      <button class="btn gold" id="qpObsAdd">所見メモを保存</button>
+      <button class="btn" id="qpGoStudent">生徒ページへ</button>
+      <button class="btn ghost" id="qpClose">閉じる</button></div>`);
+  document.getElementById("qpClose").onclick = ()=>closeSheet();
+  document.getElementById("qpGoStudent").onclick = ()=>{ closeSheet(); state.selectedStudentId=studentId; state.view="student"; render(); };
+  document.getElementById("qpObsAdd").onclick = async ()=>{
+    const ok = await addObservation(studentId, group.courseId||null, null,
+      document.getElementById("qpObsText").value, document.getElementById("qpObsView").value);
+    if (ok){ toast("所見メモを保存しました"); closeSheet(); }
+  };
+  const setAtt = async (lessonId, status)=>{
+    const lesson = await getOrDraftLesson(today, Number(lessonId.split("#")[1]));
+    const course = state.courses.find(c=>c.id===lesson.courseId);
+    const grp = course ? courseGroup(course) : group;
+    const rec = await getEnc("attendance", lessonId);
+    const marks = Object.assign({}, rec && rec.marks ? rec.marks : {});
+    if (status) marks[studentId] = { status, memo: (marks[studentId]&&marks[studentId].memo)||"" };
+    else delete marks[studentId];
+    await putEnc("attendance",
+      { id: lessonId, date: today, yearId: state.currentYearId, courseId: lesson.courseId||null, groupId: grp?grp.id:group.id },
+      { marks, note: (rec && rec.note) || "" });
+    toast("出欠を保存しました");
+    openSeatQuickPanel(group, studentId);
+  };
+  document.querySelectorAll("[data-qp-status]").forEach(b=>b.onclick=()=>setAtt(b.dataset.qpLid, b.dataset.qpStatus));
+  document.querySelectorAll("[data-qp-clear]").forEach(b=>b.onclick=()=>setAtt(b.dataset.qpClear, null));
+}
+
+// ===== 時限チェック（check）=====
+async function renderCheck(root){
+  const date = state.selectedDate || todayString();
+  const period = state.selectedPeriod == null ? currentPeriodCode() : state.selectedPeriod;
+  const lesson = await getOrDraftLesson(date, period);
+  const course = state.courses.find(c=>c.id===lesson.courseId) || null;
+  const group = course ? courseGroup(course) : null;
+  let h = `<div class="rowflex">${backHomeBtn("ckHome")}
+    <button class="btn small ghost" id="ckDay">📝 日エリア</button>
+    <button class="btn small ghost" id="ckSeats">💺 座席表</button></div>
+  <h2 class="viewtitle">時限チェック ― ${esc(date)}（${WEEKDAY_LABELS[dayOfWeek(date)]}） ${esc(periodLabel(period))}</h2>`;
+  if (!course){
+    h += `<div class="card">このコマには講座が設定されていません。週案や授業記録で講座を選んでください。
+    <div style="margin-top:10px"><button class="btn gold" id="ckGoLesson">授業記録を開く</button></div></div>`;
+    root.innerHTML = h; bindHome("ckHome");
+    document.getElementById("ckGoLesson").onclick = ()=>{ state.view="lesson"; render(); };
+    document.getElementById("ckDay").onclick = ()=>{ state.view="day"; render(); };
+    document.getElementById("ckSeats").onclick = ()=>{ state.view="seats"; render(); };
+    return;
+  }
+  if (!group){
+    h += `<div class="card"><strong>${esc(courseName(course.id))}</strong> には名簿グループが設定されていません。出欠を取るには、名簿でグループを作り、設定画面の講座一覧でこの講座にグループを選んでください。
+    <div class="rowflex" style="margin-top:10px"><button class="btn gold" id="ckGoRoster">👥 名簿へ</button>
+    <button class="btn" id="ckGoSettings">⚙ 設定へ</button></div></div>`;
+    root.innerHTML = h; bindHome("ckHome");
+    document.getElementById("ckGoRoster").onclick = ()=>{ state.view="roster"; render(); };
+    document.getElementById("ckGoSettings").onclick = ()=>{ state.view="settings"; render(); };
+    document.getElementById("ckDay").onclick = ()=>{ state.view="day"; render(); };
+    document.getElementById("ckSeats").onclick = ()=>{ state.view="seats"; render(); };
+    return;
+  }
+  const rec = await getEnc("attendance", lesson.id);
+  const marks = Object.assign({}, rec && rec.marks ? rec.marks : {});
+  const note = (rec && rec.note) || "";
+  const members = groupMembers(group.id);
+  if (!state.checkStudentId || !members.some(x=>x.student.id===state.checkStudentId)){
+    state.checkStudentId = members.length ? members[0].student.id : null;
+  }
+  const selId = state.checkStudentId;
+  const selMark = selId ? marks[selId] : null;
+  h += `<p class="muted">講座：<strong>${esc(courseName(course.id))}</strong> ／ 名簿：${esc(group.name)}（${members.length}名）。出席は既定です。異常のある生徒だけをタップで記録します。</p>`;
+  if (rec && rec.decryptError) h += `<div class="warnbox"><strong>警告：</strong>このコマの出欠レコードを復号できませんでした。表示は空になっています。保存すると上書きされるため、ご注意ください。</div>`;
+  h += `<div class="card"><h3 class="sect" style="margin-top:0">名簿（タップで選択）</h3>`;
+  h += members.map(({membership:m, student:st})=>{
+    const mk = marks[st.id];
+    return `<div class="listitem" data-ck-row="${st.id}" style="${st.id===selId?"outline:3px solid var(--gold);background:#fdf6dd":""}">
+      <span class="t">${esc(displayNameOf(st, group.id))}</span>
+      ${mk?`<span class="chip">${esc(attendanceStatusLabel(mk.status))}</span>${mk.memo?` <span class="muted">✎メモあり</span>`:""}`:`<span class="muted">出席</span>`}
+    </div>`;
+  }).join("") || `<p class="muted">このグループに生徒がいません。名簿で追加してください。</p>`;
+  h += `</div>`;
+  if (selId){
+    const st = studentById(selId);
+    h += `<div class="card" style="position:sticky;bottom:0"><h3 class="sect" style="margin-top:0">操作パネル ― ${esc(displayNameOf(st, group.id))}</h3>
+    <div class="statusseg" id="ckStatus">
+      <button data-ck-clear="1" class="${!selMark?"on":""}">出席に戻す</button>
+      ${ATTENDANCE_STATUSES.map(x=>`<button data-ck-st="${x.id}" class="${selMark&&selMark.status===x.id?"on":""}">${x.label}</button>`).join("")}
+    </div>
+    <label class="f">その他（自由記述）メモ ― どの状態にも併記できます</label>
+    <textarea class="t" id="ckMemo" placeholder="例：保護者から連絡あり、病院受診のため">${esc(state.privacyOn?mask2(selMark?selMark.memo:""):(selMark?selMark.memo||"":""))}</textarea>
+    <div class="savednote" id="ckSaved">状態ボタンやメモの変更は、そのたびに暗号化して自動保存します。</div>
+    <h3 class="sect">クイック記録（所見メモ）</h3>
+    <textarea class="t" id="ckObsText" placeholder="この生徒の活躍・配慮事項など"></textarea>
+    <label class="f">観点タグ</label><select class="t" id="ckObsView">${viewpointOptions("none")}</select>
+    <div style="margin-top:8px"><button class="btn small gold" id="ckObsAdd">所見メモを追加</button>
+    <button class="btn small ghost" id="ckGoStudent">生徒ページへ</button></div>
+    </div>`;
+  }
+  h += `<div class="card"><label class="f">このコマの出欠メモ（全体）</label>
+  <textarea class="t" id="ckNote">${esc(state.privacyOn?mask2(note):note)}</textarea>
+  <div class="savednote" id="ckNoteSaved"></div>
+  <div class="rowflex" style="margin-top:10px">
+    <button class="btn gold" id="ckGoLesson">📖 授業記録を開く</button>
+  </div></div>`;
+  root.innerHTML = h;
+  bindHome("ckHome");
+  document.getElementById("ckDay").onclick = ()=>{ state.view="day"; render(); };
+  document.getElementById("ckSeats").onclick = ()=>{ state.selectedGroupId=group.id; state.view="seats"; render(); };
+  document.getElementById("ckGoLesson").onclick = ()=>{ state.view="lesson"; render(); };
+  const plain = { id: lesson.id, date, yearId: state.currentYearId, courseId: course.id, groupId: group.id };
+  const saveAtt = async (newMarks, newNote)=>{
+    await putEnc("attendance", plain, { marks: newMarks, note: newNote });
+    const el = document.getElementById("ckSaved");
+    if (el) el.textContent = "保存済み " + new Date().toLocaleTimeString("ja-JP");
+  };
+  root.querySelectorAll("[data-ck-row]").forEach(el=>el.onclick=()=>{ state.checkStudentId=el.dataset.ckRow; render(); });
+  root.querySelectorAll("[data-ck-st]").forEach(b=>b.onclick=async ()=>{
+    if (!selId) return;
+    const cur = marks[selId] || { status: b.dataset.ckSt, memo: "" };
+    cur.status = b.dataset.ckSt;
+    marks[selId] = cur;
+    await saveAtt(marks, document.getElementById("ckNote") ? (state.privacyOn?note:document.getElementById("ckNote").value) : note);
+    render();
+  });
+  root.querySelectorAll("[data-ck-clear]").forEach(b=>b.onclick=async ()=>{
+    if (!selId) return;
+    delete marks[selId];
+    await saveAtt(marks, note);
+    render();
+  });
+  const memoEl = document.getElementById("ckMemo");
+  if (memoEl){
+    if (state.privacyOn) memoEl.disabled = true;
+    memoEl.addEventListener("input", async ()=>{
+      if (!selId) return;
+      const cur = marks[selId] || { status: "other", memo: "" };
+      cur.memo = memoEl.value;
+      if (cur.memo || cur.status) marks[selId] = cur;
+      await saveAtt(marks, note);
+    });
+  }
+  const noteEl = document.getElementById("ckNote");
+  if (noteEl){
+    if (state.privacyOn) noteEl.disabled = true;
+    noteEl.addEventListener("input", async ()=>{
+      await putEnc("attendance", plain, { marks, note: noteEl.value });
+      const el = document.getElementById("ckNoteSaved");
+      if (el) el.textContent = "保存済み " + new Date().toLocaleTimeString("ja-JP");
+    });
+  }
+  const obsAdd = document.getElementById("ckObsAdd");
+  if (obsAdd) obsAdd.onclick = async ()=>{
+    const ok = await addObservation(selId, course.id, lesson.id,
+      document.getElementById("ckObsText").value, document.getElementById("ckObsView").value);
+    if (ok){ toast("所見メモを保存しました"); document.getElementById("ckObsText").value=""; }
+  };
+  const gs = document.getElementById("ckGoStudent");
+  if (gs) gs.onclick = ()=>{ state.selectedStudentId=selId; state.view="student"; render(); };
+}
+
+// ===== 提出物（submissions）=====
+async function renderSubmissions(root){
+  if (!state.selectedCourseId && state.courses.length) state.selectedCourseId = state.courses[0].id;
+  const course = state.courses.find(c=>c.id===state.selectedCourseId) || null;
+  const group = course ? courseGroup(course) : null;
+  let h = `<div class="rowflex">${backHomeBtn("sbHome")}<button class="btn small ghost" id="sbCourse">📚 講座ビューへ</button></div>
+  <h2 class="viewtitle">提出物</h2>
+  <div class="card"><label class="f">講座</label><select class="t" id="sbCourseSel">${courseOptions(state.selectedCourseId)}</select></div>`;
+  let assignments = [], statesById = {};
+  if (course){
+    assignments = (await getAssignmentsByCourse(course.id)).slice().sort((a,b)=> (a.dueDate||"")<(b.dueDate||"")?-1:1);
+    for (const a of assignments){
+      const rec = await getEnc("submissionRecords", a.id);
+      statesById[a.id] = rec && rec.states ? rec.states : {};
+    }
+    const memberIds = group ? groupMembers(group.id).map(x=>x.student.id) : [];
+    h += `<h3 class="sect">課題一覧</h3>`;
+    h += assignments.map(a=>{
+      const un = computeUnsubmitted(memberIds, statesById[a.id]).length;
+      return `<div class="listitem" data-sb-open="${a.id}"><span class="t">${esc(a.title)}</span>
+        <span class="muted">期限：${esc(a.dueDate||"―")} ／ 評価：${esc(evalKindLabel(a.evalKind))}</span>
+        ${group?`<span class="badge" style="background:${un?"var(--danger)":"var(--ok)"}">未提出 ${un} 名</span>`:""}
+      </div>`;
+    }).join("") || `<div class="card">課題はまだありません。</div>`;
+    const courseLessons = (await dbGetByIndex("lessons","byCourse",course.id)).slice().sort((a,b)=>a.date<b.date?-1:1);
+    h += `<div class="card"><h3 class="sect" style="margin-top:0">新しい課題</h3>
+      <label class="f">課題名</label><input class="t" id="saTitle" placeholder="例：ワークシート第3章">
+      <label class="f">提出期限</label><input class="t" type="date" id="saDue" value="${todayString()}">
+      <label class="f">評価方法</label><select class="t" id="saKind">${EVAL_KINDS.map(k=>`<option value="${k.id}">${k.label}</option>`).join("")}</select>
+      <label class="f">出したコマ（任意）</label><select class="t" id="saLesson"><option value="">（指定なし）</option>
+        ${courseLessons.map(l=>`<option value="${l.id}">${esc(l.date)} ${esc(periodLabel(l.period))}</option>`).join("")}</select>
+      <label class="f">観点配分（知識・技能／思考・判断・表現／態度）</label>
+      <div class="rowflex">
+        <input class="t smallnum" type="number" step="0.1" min="0" max="1" id="saWk" value="0">
+        <input class="t smallnum" type="number" step="0.1" min="0" max="1" id="saWt" value="0">
+        <input class="t smallnum" type="number" step="0.1" min="0" max="1" id="saWa" value="1">
+      </div>
+      <button class="btn gold" id="saCreate" style="margin-top:10px">課題を追加</button></div>`;
+  }
+  const selA = assignments.find(a=>a.id===state.selectedAssignmentId) || null;
+  if (course && selA){
+    const states = Object.assign({}, statesById[selA.id]||{});
+    const members = group ? groupMembers(group.id) : [];
+    const unIds = computeUnsubmitted(members.map(x=>x.student.id), states);
+    h += `<div class="card"><h3 class="sect" style="margin-top:0">提出チェック ― ${esc(selA.title)}</h3>
+    <p class="muted">評価方法：${esc(evalKindLabel(selA.evalKind))} ／ 期限：${esc(selA.dueDate||"―")}。変更のたびに暗号化して自動保存します。</p>
+    <h3 class="sect">未提出者リスト（${unIds.length}名）</h3>
+    ${unIds.length?`<p>${unIds.map(id=>{ const st=studentById(id); return esc(st?displayNameOf(st, group.id):"（不明）"); }).join("、")}</p>`:`<p class="muted">全員提出済み（または免除）です。</p>`}
+    ${members.map(({student:st})=>{
+      const cur = states[st.id];
+      let valueHtml = "";
+      if (selA.evalKind==="check"){
+        valueHtml = `<div class="statusseg" style="margin-top:6px">${["○","△","×"].map(v=>`<button data-sb-val="${st.id}:${v}" class="${cur&&cur.value===v?"on":""}">${v}</button>`).join("")}</div>`;
+      } else if (selA.evalKind==="grade"){
+        valueHtml = `<div class="statusseg" style="margin-top:6px">${["A","B","C"].map(v=>`<button data-sb-val="${st.id}:${v}" class="${cur&&cur.value===v?"on":""}">${v}</button>`).join("")}</div>`;
+      } else if (selA.evalKind==="score"){
+        valueHtml = `<div style="margin-top:6px">評価（100点換算） <input class="t smallnum" type="number" data-sb-score="${st.id}" value="${cur&&cur.value!=null?esc(cur.value):""}"></div>`;
+      }
+      return `<div class="listitem" style="cursor:default"><span class="t">${esc(displayNameOf(st, group.id))}</span>
+        <span class="muted">${cur?esc(submissionStatusLabel(cur.status)):"未提出"}</span>
+        <div class="statusseg" style="margin-top:6px">
+          <button data-sb-clear="${st.id}" class="${!cur?"on":""}">未提出に戻す</button>
+          ${SUBMISSION_STATUSES.map(x=>`<button data-sb-st="${st.id}:${x.id}" class="${cur&&cur.status===x.id?"on":""}">${x.label}</button>`).join("")}
+        </div>
+        ${valueHtml}
+        <div style="margin-top:6px">メモ <input class="t" data-sb-memo="${st.id}" value="${esc(state.privacyOn?mask2(cur?cur.memo:""):(cur?cur.memo||"":""))}" ${state.privacyOn?"disabled":""}></div>
+      </div>`;
+    }).join("") || `<p class="muted">対象名簿がありません。講座に名簿グループを設定してください。</p>`}
+    <div class="savednote" id="sbSaved"></div></div>`;
+  }
+  root.innerHTML = h;
+  bindHome("sbHome");
+  document.getElementById("sbCourse").onclick = ()=>{ state.view = course ? "course" : "courses"; render(); };
+  document.getElementById("sbCourseSel").onchange = (e)=>{ state.selectedCourseId=e.target.value||null; state.selectedAssignmentId=null; render(); };
+  root.querySelectorAll("[data-sb-open]").forEach(el=>el.onclick=()=>{ state.selectedAssignmentId=el.dataset.sbOpen; render(); });
+  if (course){
+    document.getElementById("saCreate").onclick = async ()=>{
+      const title = document.getElementById("saTitle").value.trim();
+      if (!title){ toast("課題名を入力してください"); return; }
+      const a = { id: uuid(), courseId: course.id, groupId: group?group.id:null, yearId: state.currentYearId,
+        termId: termIdForDate(state.terms, document.getElementById("saDue").value || todayString()),
+        title, dueDate: document.getElementById("saDue").value || "",
+        lessonId: document.getElementById("saLesson").value || null,
+        evalKind: document.getElementById("saKind").value,
+        viewWeights: normalizeViewWeights({ knowledge: Number(document.getElementById("saWk").value)||0, thinking: Number(document.getElementById("saWt").value)||0, attitude: Number(document.getElementById("saWa").value)||0 }),
+        memo: "", level: 1 };
+      await dbPut("assignments", a);
+      state.selectedAssignmentId = a.id;
+      toast("課題を追加しました"); render();
+    };
+  }
+  if (course && selA && group){
+    const states = Object.assign({}, statesById[selA.id]||{});
+    const plain = { id: selA.id, courseId: course.id, yearId: state.currentYearId };
+    const save = async ()=>{
+      await putEnc("submissionRecords", plain, { states });
+      const el = document.getElementById("sbSaved");
+      if (el) el.textContent = "保存済み " + new Date().toLocaleTimeString("ja-JP");
+    };
+    root.querySelectorAll("[data-sb-st]").forEach(b=>b.onclick=async ()=>{
+      const i = b.dataset.sbSt.lastIndexOf(":");
+      const sid = b.dataset.sbSt.slice(0,i), status = b.dataset.sbSt.slice(i+1);
+      const cur = states[sid] || { status, value: null, memo: "", submittedDate: "" };
+      cur.status = status;
+      if (!cur.submittedDate) cur.submittedDate = todayString();
+      states[sid] = cur;
+      await save(); render();
+    });
+    root.querySelectorAll("[data-sb-clear]").forEach(b=>b.onclick=async ()=>{
+      delete states[b.dataset.sbClear];
+      await save(); render();
+    });
+    root.querySelectorAll("[data-sb-val]").forEach(b=>b.onclick=async ()=>{
+      const i = b.dataset.sbVal.lastIndexOf(":");
+      const sid = b.dataset.sbVal.slice(0,i), v = b.dataset.sbVal.slice(i+1);
+      const cur = states[sid] || { status: "submitted", value: null, memo: "", submittedDate: todayString() };
+      cur.value = v; states[sid] = cur;
+      await save(); render();
+    });
+    root.querySelectorAll("[data-sb-score]").forEach(el=>el.addEventListener("change", async ()=>{
+      const sid = el.dataset.sbScore;
+      const cur = states[sid] || { status: "submitted", value: null, memo: "", submittedDate: todayString() };
+      cur.value = el.value==="" ? null : Number(el.value);
+      states[sid] = cur;
+      await save();
+    }));
+    root.querySelectorAll("[data-sb-memo]").forEach(el=>el.addEventListener("input", async ()=>{
+      const sid = el.dataset.sbMemo;
+      const cur = states[sid] || { status: "submitted", value: null, memo: "", submittedDate: todayString() };
+      cur.memo = el.value; states[sid] = cur;
+      await save();
+    }));
+  }
+}
+
+// ===== 生徒ページ（student）=====
+async function renderStudent(root){
+  let st = state.selectedStudentId ? studentById(state.selectedStudentId) : null;
+  let h = `<div class="rowflex">${backHomeBtn("stHome")}<button class="btn small ghost" id="stRoster">👥 名簿へ</button></div>
+  <h2 class="viewtitle">生徒ページ</h2>
+  <div class="card"><label class="f">生徒を選ぶ</label>
+  <select class="t" id="stSel"><option value="">（生徒を選ぶ）</option>
+  ${state.students.map(x=>{
+    const m0 = state.memberships.find(m=>m.studentId===x.id);
+    return `<option value="${x.id}" ${st&&x.id===st.id?"selected":""}>${esc(displayNameOf(x, m0?m0.groupId:null))}</option>`;
+  }).join("")}</select></div>`;
+  if (st){
+    const myMemberships = state.memberships.filter(m=>m.studentId===st.id);
+    const myGroups = myMemberships.map(m=>state.groups.find(g=>g.id===m.groupId)).filter(Boolean);
+    h += `<div class="card"><h3 class="sect" style="margin-top:0">${esc(displayNameOf(st, myMemberships[0]?myMemberships[0].groupId:null))}</h3>
+    <p>所属：${myMemberships.map(m=>{ const g=state.groups.find(x=>x.id===m.groupId); return `${esc(g?g.name:"（不明）")} #${m.no==null?"―":m.no}`; }).join(" ／ ") || "なし"}</p></div>`;
+
+    // 出欠推移
+    const yr = yearRange(state.currentYearId);
+    const attRaw = await dbGetRange("attendance", "byDate", yr.startDate, yr.endDate);
+    const marksList = [], recent = [];
+    for (const r of attRaw){
+      const dec = await decryptMerge(r);
+      if (dec.decryptError || !dec.marks) continue;
+      if (dec.marks[st.id]){ marksList.push({ [st.id]: dec.marks[st.id] }); recent.push({ date: dec.date, id: dec.id, courseId: dec.courseId, mark: dec.marks[st.id] }); }
+    }
+    const summary = summarizeAttendance(marksList)[st.id] || { total: 0, byStatus: {} };
+    recent.sort((a,b)=> a.date<b.date?1:-1);
+    h += `<div class="card"><h3 class="sect" style="margin-top:0">出欠推移（${state.currentYearId}年度）</h3>
+    <p>異常の記録：合計 ${summary.total} 件 ${ATTENDANCE_STATUSES.map(x=>`${x.label} ${summary.byStatus[x.id]||0}`).join(" ／ ")}</p>
+    ${recent.slice(0,20).map(r=>`<div class="listitem" style="cursor:default"><span class="t">${esc(r.date)} ${esc(r.courseId?courseName(r.courseId):"")}</span>
+      <span class="chip">${esc(attendanceStatusLabel(r.mark.status))}</span>${r.mark.memo?`<br>${esc(mask2(r.mark.memo))}`:""}</div>`).join("") || `<p class="muted">出欠の異常記録はありません。</p>`}
+    </div>`;
+
+    // 提出状況・スコア推移（所属講座）
+    const myCourses = state.courses.filter(c=>c.groupId && myGroups.some(g=>g.id===c.groupId));
+    let subHtml = "", scoreHtml = "";
+    for (const c of myCourses){
+      const assigns = await getAssignmentsByCourse(c.id);
+      for (const a of assigns){
+        const rec = await getEnc("submissionRecords", a.id);
+        const cur = rec && rec.states ? rec.states[st.id] : null;
+        subHtml += `<div class="listitem" style="cursor:default"><span class="t">${esc(a.title)}</span> <span class="muted">${esc(c.name)} ／ 期限 ${esc(a.dueDate||"―")}</span><br>${cur?`${esc(submissionStatusLabel(cur.status))}${cur.value!=null&&cur.value!==""?`（${esc(cur.value)}）`:""}`:"未提出"}</div>`;
+      }
+      const tests = await getTestsByCourse(c.id);
+      for (const t of tests.slice().sort((a,b)=> (a.date||"")<(b.date||"")?-1:1)){
+        const rec = await getEnc("scoreRecords", t.id);
+        const cur = rec && rec.scores ? rec.scores[st.id] : null;
+        scoreHtml += `<div class="listitem" style="cursor:default"><span class="t">${esc(t.name)}</span> <span class="muted">${esc(t.date||"―")} ／ ${esc(testKindLabel(t.kind))}</span><br>${cur?(cur.absent?"未受験（欠席）":`${esc(cur.score)} / ${esc(t.maxScore)} 点`):"未入力"}</div>`;
+      }
+    }
+    h += `<div class="card"><h3 class="sect" style="margin-top:0">提出状況</h3>${subHtml || `<p class="muted">所属講座の課題はありません。</p>`}</div>`;
+    h += `<div class="card"><h3 class="sect" style="margin-top:0">スコア推移</h3>${scoreHtml || `<p class="muted">所属講座のテストはありません。</p>`}</div>`;
+
+    // 所見メモ（観点別）
+    const obsRaw = await getObservationsByStudent(st.id);
+    const obs = [];
+    for (const r of obsRaw) obs.push(await decryptMerge(r));
+    obs.sort((a,b)=> (a.date||"")<(b.date||"")?1:-1);
+    h += `<div class="card"><h3 class="sect" style="margin-top:0">所見メモ（いいとこみつけ）</h3>`;
+    for (const v of VIEWPOINTS.concat([{id:"none",label:"（観点なし）"}])){
+      const list = obs.filter(o=>!o.decryptError && (o.viewpoint||"none")===v.id);
+      if (!list.length) continue;
+      h += `<h3 class="sect">${esc(v.label)}（${list.length}件）</h3>` + list.map(o=>`<div class="listitem" style="cursor:default"><span class="muted">${esc(o.date||"")}</span><br>${esc(mask2(o.text||""))}</div>`).join("");
+    }
+    if (!obs.length) h += `<p class="muted">所見メモはまだありません。</p>`;
+    h += `<label class="f">所見メモを追加</label><textarea class="t" id="stObsText"></textarea>
+    <label class="f">観点タグ</label><select class="t" id="stObsView">${viewpointOptions("none")}</select>
+    <label class="f">講座（任意）</label><select class="t" id="stObsCourse"><option value="">（なし）</option>${myCourses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>
+    <div style="margin-top:8px"><button class="btn gold" id="stObsAdd">追加する</button></div></div>`;
+  }
+  root.innerHTML = h;
+  bindHome("stHome");
+  document.getElementById("stRoster").onclick = ()=>{ state.view="roster"; render(); };
+  document.getElementById("stSel").onchange = (e)=>{ state.selectedStudentId=e.target.value||null; render(); };
+  if (st){
+    document.getElementById("stObsAdd").onclick = async ()=>{
+      const ok = await addObservation(st.id, document.getElementById("stObsCourse").value||null, null,
+        document.getElementById("stObsText").value, document.getElementById("stObsView").value);
+      if (ok){ toast("所見メモを保存しました"); render(); }
+    };
+  }
+}
+
+// ===== 成績・集計（grades）=====
+async function buildGradeMaterials(course, term){
+  const materials = [];
+  const tests = (await getTestsByCourse(course.id)).filter(t=> term ? (t.termId===term.id || (t.date>=term.startDate && t.date<=term.endDate)) : true);
+  for (const t of tests){
+    const rec = await getEnc("scoreRecords", t.id);
+    const scores = rec && rec.scores ? rec.scores : {};
+    const ach = {};
+    for (const sid of Object.keys(scores)) ach[sid] = scoreAchievement(scores[sid], t.maxScore);
+    // 未入力の生徒も集計対象に含めるため所属生徒は呼び出し側で補う（achievements にキーが無い生徒は材料なし扱い）
+    materials.push({ kind:"test", def:t, viewWeights: t.viewWeights||{}, achievements: ach });
+  }
+  const assigns = (await getAssignmentsByCourse(course.id)).filter(a=> term ? (a.termId===term.id || (a.dueDate>=term.startDate && a.dueDate<=term.endDate)) : true);
+  for (const a of assigns){
+    const rec = await getEnc("submissionRecords", a.id);
+    const states = rec && rec.states ? rec.states : {};
+    materials.push({ kind:"assignment", def:a, viewWeights: a.viewWeights||{}, achievements: states, evalKind: a.evalKind });
+  }
+  // assignments の achievements は state オブジェクトなので達成度へ変換する
+  for (const m of materials){
+    if (m.kind==="assignment"){
+      const ach = {};
+      const group = courseGroup(course);
+      const ids = group ? groupMembers(group.id).map(x=>x.student.id) : Object.keys(m.achievements);
+      for (const sid of ids) ach[sid] = submissionAchievement(m.evalKind, m.achievements[sid]);
+      m.achievements = ach;
+    }
+  }
+  return { materials, tests, assigns };
+}
+async function renderGrades(root){
+  if (!state.selectedCourseId && state.courses.length) state.selectedCourseId = state.courses[0].id;
+  const course = state.courses.find(c=>c.id===state.selectedCourseId) || null;
+  if (!state.selectedTermId && state.terms.length){
+    const t = termForDate(state.terms, todayString()) || state.terms[0];
+    state.selectedTermId = t.id;
+  }
+  const term = state.terms.find(t=>t.id===state.selectedTermId) || null;
+  const group = course ? courseGroup(course) : null;
+  let h = `<div class="rowflex">${backHomeBtn("gHome")}<button class="btn small ghost" id="gCourse">📚 講座ビューへ</button></div>
+  <h2 class="viewtitle">成績・集計</h2>
+  <div class="card"><label class="f">講座</label><select class="t" id="gCourseSel">${courseOptions(state.selectedCourseId)}</select>
+  <label class="f">学期</label><select class="t" id="gTermSel">${state.terms.map(t=>`<option value="${t.id}" ${term&&t.id===term.id?"selected":""}>${esc(t.name)}（${esc(t.startDate)}〜${esc(t.endDate)}）</option>`).join("")}</select></div>`;
+  if (!course || !term){
+    h += `<div class="card">講座と学期を選んでください。</div>`;
+    root.innerHTML = h; bindHome("gHome");
+    document.getElementById("gCourse").onclick=()=>{ state.view="courses"; render(); };
+    const cs=document.getElementById("gCourseSel"); if(cs) cs.onchange=(e)=>{ state.selectedCourseId=e.target.value||null; render(); };
+    const ts=document.getElementById("gTermSel"); if(ts) ts.onchange=(e)=>{ state.selectedTermId=e.target.value||null; render(); };
+    return;
+  }
+  const members = group ? groupMembers(group.id) : [];
+  // テスト定義
+  const tests = (await getTestsByCourse(course.id)).slice().sort((a,b)=> (a.date||"")<(b.date||"")?-1:1);
+  h += `<h3 class="sect">テスト定義</h3>`;
+  h += tests.map(t=>`<div class="listitem" data-g-test="${t.id}"><span class="t">${esc(t.name)}</span>
+    <span class="muted">${esc(t.date||"―")} ／ ${esc(testKindLabel(t.kind))} ／ 満点 ${esc(t.maxScore)}</span></div>`).join("") || `<div class="card">テストはまだありません。</div>`;
+  h += `<div class="card"><h3 class="sect" style="margin-top:0">テストを追加</h3>
+    <label class="f">名前</label><input class="t" id="gtName" placeholder="例：第3回小テスト／中間考査">
+    <div class="rowflex"><span style="flex:1">日付 <input class="t" type="date" id="gtDate" value="${todayString()}"></span>
+    <span style="flex:1">種別 <select class="t" id="gtKind">${TEST_KINDS.map(k=>`<option value="${k.id}">${k.label}</option>`).join("")}</select></span>
+    <span>満点 <input class="t smallnum" type="number" id="gtMax" value="100"></span></div>
+    <label class="f">観点配分（知識・技能／思考・判断・表現／態度）</label>
+    <div class="rowflex"><input class="t smallnum" type="number" step="0.1" min="0" max="1" id="gtWk" value="1">
+    <input class="t smallnum" type="number" step="0.1" min="0" max="1" id="gtWt" value="0">
+    <input class="t smallnum" type="number" step="0.1" min="0" max="1" id="gtWa" value="0"></div>
+    <button class="btn gold" id="gtCreate" style="margin-top:10px">テストを追加</button></div>`;
+
+  const selTest = tests.find(t=>t.id===state.selectedTestId) || null;
+  let scoreRec = null;
+  if (selTest){
+    scoreRec = await getEnc("scoreRecords", selTest.id);
+    const scores = scoreRec && scoreRec.scores ? scoreRec.scores : {};
+    h += `<div class="card"><h3 class="sect" style="margin-top:0">スコア入力 ― ${esc(selTest.title||selTest.name)}</h3>
+    ${scoreRec && scoreRec.decryptError?`<div class="warnbox">このテストのスコアを復号できませんでした。</div>`:""}
+    <p class="muted">満点 ${esc(selTest.maxScore)} 点。変更のたびに暗号化して自動保存します。</p>
+    ${members.map(({student:st})=>{
+      const cur = scores[st.id];
+      return `<div class="listitem" style="cursor:default"><span class="t">${esc(displayNameOf(st, group.id))}</span>
+      <div class="rowflex" style="margin-top:6px">
+        <span>点数 <input class="t smallnum" type="number" data-gs-score="${st.id}" value="${cur&&cur.score!=null?esc(cur.score):""}" ${cur&&cur.absent?"disabled":""}></span>
+        <label style="font-size:15px"><input type="checkbox" data-gs-absent="${st.id}" ${cur&&cur.absent?"checked":""} style="width:20px;height:20px;vertical-align:middle"> 未受験（欠席）</label>
+        <span style="flex:1;min-width:140px">メモ <input class="t" data-gs-memo="${st.id}" value="${esc(state.privacyOn?mask2(cur?cur.memo:""):(cur?cur.memo||"":""))}" ${state.privacyOn?"disabled":""}></span>
+      </div></div>`;
+    }).join("") || `<p class="muted">対象名簿がありません。講座に名簿グループを設定してください。</p>`}
+    <div class="savednote" id="gsSaved"></div></div>`;
+  }
+
+  // 観点集計・シミュレーション
+  const gsId = `${course.id}:${term.id}`;
+  let gsRec = await dbGet("gradeSettings", gsId);
+  const gsSaved = gsRec ? { viewWeights: gsRec.viewWeights, thresholds: gsRec.thresholds, ratingTable: gsRec.ratingTable } : defaultGradeSettings();
+  const sim = state._gradeSim && state._gradeSimKey===gsId ? state._gradeSim : gsSaved;
+  const { materials } = await buildGradeMaterials(course, term);
+  // 所属生徒全員が集計対象になるよう、材料の achievements にキーを補う
+  for (const m of materials){
+    for (const {student:st} of members) if (!(st.id in m.achievements)) m.achievements[st.id] = null;
+  }
+  const grades = computeGrades(materials, sim);
+  const thA = (sim.thresholds.find(t=>t.label==="A")||{}).min, thB = (sim.thresholds.find(t=>t.label==="B")||{}).min;
+  const rt = (r)=>{ const row = sim.ratingTable.find(x=>x.rating===r); return row?row.min:""; };
+  h += `<div class="card"><h3 class="sect" style="margin-top:0">観点別集計・評定シミュレーション（${esc(term.name)}）</h3>
+  <p class="muted">材料：テスト ${materials.filter(m=>m.kind==="test").length} 件・提出物 ${materials.filter(m=>m.kind==="assignment").length} 件。ここの入力変更は<strong>シミュレーション</strong>で、保存はされません（設定として残すときは「設定を保存」）。</p>
+  <label class="f">観点の重み（知識・技能／思考・判断・表現／態度）</label>
+  <div class="rowflex">
+    <input class="t smallnum" type="number" step="0.05" min="0" max="1" id="gsWk" value="${esc(sim.viewWeights.knowledge)}">
+    <input class="t smallnum" type="number" step="0.05" min="0" max="1" id="gsWt" value="${esc(sim.viewWeights.thinking)}">
+    <input class="t smallnum" type="number" step="0.05" min="0" max="1" id="gsWa" value="${esc(sim.viewWeights.attitude)}">
+  </div>
+  <label class="f">観点別評定のしきい値（A以上／B以上、それ未満はC）</label>
+  <div class="rowflex"><input class="t smallnum" type="number" step="0.05" min="0" max="1" id="gsThA" value="${esc(thA)}">
+  <input class="t smallnum" type="number" step="0.05" min="0" max="1" id="gsThB" value="${esc(thB)}"></div>
+  <label class="f">評定のしきい値（5以上／4以上／3以上／2以上、それ未満は1）</label>
+  <div class="rowflex">${[5,4,3,2].map(r=>`<input class="t smallnum" type="number" step="0.05" min="0" max="1" id="gsRt${r}" value="${esc(rt(r))}">`).join("")}</div>
+  <div class="rowflex" style="margin-top:10px">
+    <button class="btn" id="gsRecalc">再計算する（シミュレーション）</button>
+    <button class="btn gold" id="gsSaveSettings">この設定を保存</button>
+    <button class="btn" id="gsConfirm">確定する（スナップショット保存）</button>
+  </div>
+  <div id="gsSnapshotInfo"></div>
+  <div style="overflow-x:auto;margin-top:10px"><table class="plain"><tr><th>生徒</th>${VIEWPOINTS.map(v=>`<th>${esc(v.label)}</th>`).join("")}<th>評定</th></tr>
+  ${members.map(({student:st})=>{
+    const g = grades[st.id];
+    const cell = (vid)=>{ const pv = g && g.perView ? g.perView[vid] : null; return pv ? `${Math.round(pv.score*100)}（${esc(pv.rating||"―")}）` : "―"; };
+    return `<tr><td>${esc(displayNameOf(st, group.id))}</td><td>${cell("knowledge")}</td><td>${cell("thinking")}</td><td>${cell("attitude")}</td><td><strong>${g&&g.rating!=null?esc(g.rating):"―"}</strong></td></tr>`;
+  }).join("") || `<tr><td colspan="5">対象生徒がいません</td></tr>`}
+  </table></div></div>`;
+
+  // 転記用一覧
+  h += `<div class="card"><h3 class="sect" style="margin-top:0">転記用一覧</h3>`;
+  if (state.privacyOn){
+    h += `<p>🙈 プライバシーモード ON のため、転記用一覧は開けません。転記には氏名が必要なため、マスクしたままでは転記できない設計です。ヘッダーで OFF にしてから開いてください。</p>`;
+  } else {
+    h += `<div class="statusseg" id="gTabSeg">
+      <button data-gtab="score" class="${state.gradesTab==="score"?"on":""}">テストのスコア</button>
+      <button data-gtab="attendance" class="${state.gradesTab==="attendance"?"on":""}">出欠集計</button>
+      <button data-gtab="grades" class="${state.gradesTab==="grades"?"on":""}">観点別評定</button></div>
+    <div id="gTransferBody" style="margin-top:10px"></div>
+    <label class="f">タブ区切りテキスト（転記用）</label>
+    <textarea class="t" id="gTsv" readonly style="min-height:120px"></textarea>
+    <div class="rowflex" style="margin-top:8px">
+      <button class="btn gold" id="gCopy">TSVをコピー</button>
+      <button class="btn danger" id="gClearClip">クリップボードを今すぐ消去</button>
+      ${settings().csvEnabled?`<button class="btn" id="gCsv">CSVダウンロード</button>`:`<span class="muted">CSV出力は OFF です（設定画面で有効化できます）</span>`}
+    </div>
+    <p class="muted">コピー後30秒で、このページが開いている間に限りクリップボードを空にし直すことを試みます。ただし<strong>ページを閉じた後や、OSのクリップボード履歴までは消せません</strong>。転記が終わったら「クリップボードを今すぐ消去」ボタンで消してください。</p>`;
+  }
+  h += `</div>`;
+  root.innerHTML = h;
+  bindHome("gHome");
+  document.getElementById("gCourse").onclick = ()=>{ state.view="course"; render(); };
+  document.getElementById("gCourseSel").onchange = (e)=>{ state.selectedCourseId=e.target.value||null; state.selectedTestId=null; state._gradeSim=null; render(); };
+  document.getElementById("gTermSel").onchange = (e)=>{ state.selectedTermId=e.target.value||null; state._gradeSim=null; render(); };
+  root.querySelectorAll("[data-g-test]").forEach(el=>el.onclick=()=>{ state.selectedTestId=el.dataset.gTest; render(); });
+  document.getElementById("gtCreate").onclick = async ()=>{
+    const name = document.getElementById("gtName").value.trim();
+    if (!name){ toast("テスト名を入力してください"); return; }
+    const date = document.getElementById("gtDate").value || todayString();
+    const t = { id: uuid(), courseId: course.id, groupId: group?group.id:null, yearId: state.currentYearId,
+      termId: termIdForDate(state.terms, date), name, date,
+      kind: document.getElementById("gtKind").value,
+      maxScore: Number(document.getElementById("gtMax").value)||100,
+      viewWeights: normalizeViewWeights({ knowledge: Number(document.getElementById("gtWk").value)||0, thinking: Number(document.getElementById("gtWt").value)||0, attitude: Number(document.getElementById("gtWa").value)||0 }),
+      memo: "", level: 1 };
+    await dbPut("tests", t);
+    state.selectedTestId = t.id;
+    toast("テストを追加しました"); render();
+  };
+  if (selTest && group){
+    const scores = Object.assign({}, scoreRec && scoreRec.scores ? scoreRec.scores : {});
+    const plain = { id: selTest.id, courseId: course.id, yearId: state.currentYearId };
+    const save = async ()=>{
+      await putEnc("scoreRecords", plain, { scores });
+      const el = document.getElementById("gsSaved");
+      if (el) el.textContent = "保存済み " + new Date().toLocaleTimeString("ja-JP");
+    };
+    root.querySelectorAll("[data-gs-score]").forEach(el=>el.addEventListener("change", async ()=>{
+      const cur = scores[el.dataset.gsScore] || { score: null, absent: false, memo: "" };
+      cur.score = el.value==="" ? null : Number(el.value);
+      scores[el.dataset.gsScore] = cur;
+      await save();
+    }));
+    root.querySelectorAll("[data-gs-absent]").forEach(el=>el.addEventListener("change", async ()=>{
+      const cur = scores[el.dataset.gsAbsent] || { score: null, absent: false, memo: "" };
+      cur.absent = el.checked;
+      scores[el.dataset.gsAbsent] = cur;
+      await save(); render();
+    }));
+    root.querySelectorAll("[data-gs-memo]").forEach(el=>el.addEventListener("input", async ()=>{
+      const cur = scores[el.dataset.gsMemo] || { score: null, absent: false, memo: "" };
+      cur.memo = el.value;
+      scores[el.dataset.gsMemo] = cur;
+      await save();
+    }));
+  }
+  const readSim = ()=>{
+    const num = (id)=>{ const el=document.getElementById(id); return el?Number(el.value):0; };
+    return {
+      viewWeights: { knowledge: num("gsWk"), thinking: num("gsWt"), attitude: num("gsWa") },
+      thresholds: [ { min: num("gsThA"), label: "A" }, { min: num("gsThB"), label: "B" }, { min: 0, label: "C" } ],
+      ratingTable: [5,4,3,2].map(r=>({ min: num("gsRt"+r), rating: r })).concat([{ min: 0, rating: 1 }]),
+    };
+  };
+  document.getElementById("gsRecalc").onclick = ()=>{
+    state._gradeSim = readSim(); state._gradeSimKey = gsId;
+    toast("シミュレーションを再計算しました（保存はしていません）"); render();
+  };
+  document.getElementById("gsSaveSettings").onclick = async ()=>{
+    const simNow = readSim();
+    await dbPut("gradeSettings", Object.assign({ id: gsId, courseId: course.id, termId: term.id, yearId: state.currentYearId, level: 1 }, simNow));
+    state._gradeSim = null;
+    toast("集計設定を保存しました"); render();
+  };
+  // 既存スナップショット表示
+  (async ()=>{
+    const snap = await getEnc("gradeSnapshots", gsId);
+    const el = document.getElementById("gsSnapshotInfo");
+    if (el && snap && !snap.decryptError && snap.computedAt){
+      el.innerHTML = `<p class="muted">確定済みスナップショット：${esc(snap.computedAt)}（再確定で上書きされます）</p>`;
+    }
+  })();
+  document.getElementById("gsConfirm").onclick = async ()=>{
+    const params = state._gradeSim && state._gradeSimKey===gsId ? state._gradeSim : gsSaved;
+    const { materials: mats2 } = await buildGradeMaterials(course, term);
+    for (const m of mats2) for (const {student:st} of members) if (!(st.id in m.achievements)) m.achievements[st.id] = null;
+    const results = computeGrades(mats2, params);
+    await putEnc("gradeSnapshots",
+      { id: gsId, courseId: course.id, termId: term.id, yearId: state.currentYearId },
+      { computedAt: new Date().toISOString(), params, results, note: "" });
+    toast("評定スナップショットを確定保存しました"); render();
+  };
+  // 転記用一覧の生成
+  if (!state.privacyOn){
+    const body = document.getElementById("gTransferBody");
+    const tsvEl = document.getElementById("gTsv");
+    let rows = [];
+    if (state.gradesTab==="score"){
+      const termTests = tests.filter(t=> t.termId===term.id || (t.date>=term.startDate && t.date<=term.endDate));
+      const recs = {};
+      for (const t of termTests) { const r = await getEnc("scoreRecords", t.id); recs[t.id] = r && r.scores ? r.scores : {}; }
+      body.innerHTML = `<div style="overflow-x:auto"><table class="plain"><tr><th>生徒</th>${termTests.map(t=>`<th>${esc(t.name)}</th>`).join("")}</tr>
+      ${members.map(({student:st})=>`<tr><td>${esc(displayNameOf(st, group?group.id:null))}</td>${termTests.map(t=>{ const cur=recs[t.id][st.id]; return `<td>${cur?(cur.absent?"欠":(cur.score==null?"":esc(cur.score))):""}</td>`; }).join("")}</tr>`).join("")}</table></div>`;
+      rows = members.map(({student:st})=>[displayNameOf(st, group?group.id:null)].concat(termTests.map(t=>{ const cur=recs[t.id][st.id]; return cur?(cur.absent?"欠":(cur.score==null?"":String(cur.score))):""; })));
+    } else if (state.gradesTab==="attendance"){
+      const attRaw = await dbGetRange("attendance", "byDate", term.startDate, term.endDate);
+      const marksList = [];
+      for (const r of attRaw){
+        if (r.courseId!==course.id) continue;
+        const dec = await decryptMerge(r);
+        if (!dec.decryptError && dec.marks) marksList.push(dec.marks);
+      }
+      const sum = summarizeAttendance(marksList);
+      body.innerHTML = `<div style="overflow-x:auto"><table class="plain"><tr><th>生徒</th>${ATTENDANCE_STATUSES.map(x=>`<th>${x.label}</th>`).join("")}<th>合計</th></tr>
+      ${members.map(({student:st})=>{ const s2=sum[st.id]||{total:0,byStatus:{}}; return `<tr><td>${esc(displayNameOf(st, group?group.id:null))}</td>${ATTENDANCE_STATUSES.map(x=>`<td>${s2.byStatus[x.id]||0}</td>`).join("")}<td>${s2.total}</td></tr>`; }).join("")}</table></div>`;
+      rows = members.map(({student:st})=>{ const s2=sum[st.id]||{total:0,byStatus:{}}; return [displayNameOf(st, group?group.id:null)].concat(ATTENDANCE_STATUSES.map(x=>String(s2.byStatus[x.id]||0))).concat([String(s2.total)]); });
+    } else {
+      body.innerHTML = `<div style="overflow-x:auto"><table class="plain"><tr><th>生徒</th>${VIEWPOINTS.map(v=>`<th>${esc(v.label)}</th>`).join("")}<th>評定</th></tr>
+      ${members.map(({student:st})=>{ const g=grades[st.id]; const cell=(vid)=>{ const pv=g&&g.perView?g.perView[vid]:null; return pv?esc(pv.rating||""):""; }; return `<tr><td>${esc(displayNameOf(st, group?group.id:null))}</td><td>${cell("knowledge")}</td><td>${cell("thinking")}</td><td>${cell("attitude")}</td><td>${g&&g.rating!=null?esc(g.rating):""}</td></tr>`; }).join("")}</table></div>`;
+      rows = members.map(({student:st})=>{ const g=grades[st.id]; const cell=(vid)=>{ const pv=g&&g.perView?g.perView[vid]:null; return pv?String(pv.rating||""):""; }; return [displayNameOf(st, group?group.id:null), cell("knowledge"), cell("thinking"), cell("attitude"), g&&g.rating!=null?String(g.rating):""]; });
+    }
+    const tsv = rows.map(r=>r.join("\t")).join("\n");
+    if (tsvEl) tsvEl.value = tsv;
+    root.querySelectorAll("[data-gtab]").forEach(b=>b.onclick=()=>{ state.gradesTab=b.dataset.gtab; render(); });
+    const clearClip = async ()=>{ try { await navigator.clipboard.writeText(""); } catch(e){} };
+    document.getElementById("gCopy").onclick = async ()=>{
+      try { await navigator.clipboard.writeText(tsv); toast("コピーしました。30秒後に消去を試みます（ページを閉じた後・OS履歴は消せません）"); }
+      catch(e){ toast("コピーできませんでした。テキスト欄から手でコピーしてください"); return; }
+      clearTimeout(renderGrades._clipTm);
+      renderGrades._clipTm = setTimeout(clearClip, 30000);
+    };
+    document.getElementById("gClearClip").onclick = async ()=>{ await clearClip(); toast("クリップボードを空にしました（この端末の現在値のみ）"); };
+    const csvBtn = document.getElementById("gCsv");
+    if (csvBtn) csvBtn.onclick = ()=>{
+      const csv = rows.map(r=>r.map(v=>`"${String(v==null?"":v).replace(/"/g,'""')}"`).join(",")).join("\n");
+      const blob = new Blob(["\ufeff"+csv], { type: "text/csv" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${course.name}_${state.gradesTab}_${todayString()}.csv`;
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+    };
+  }
+}
+
+// ===== 進度トラッカー（progress）=====
+async function renderProgress(root){
+  if (!state.selectedCourseId && state.courses.length) state.selectedCourseId = state.courses[0].id;
+  // 教科・講座名でまとめる（同一 subject+name の講座を1グループとして並べる）
+  const byKey = new Map();
+  for (const c of state.courses){
+    const key = `${c.subject}||${c.name}`;
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key).push(c);
+  }
+  let h = `<div class="rowflex">${backHomeBtn("pHome")}</div>
+  <h2 class="viewtitle">進度トラッカー</h2>`;
+  for (const [key, cs] of byKey){
+    h += `<h3 class="sect">${esc(cs[0].subject)} ${esc(cs[0].name)}</h3>`;
+    for (const c of cs){
+      const units = await getUnitsByCourse(c.id);
+      const lessons = await dbGetByIndex("lessons","byCourse",c.id);
+      const prog = computeProgress(units, lessons);
+      const doneCount = lessons.filter(l=>l.status!=="cancelled").length;
+      let currentName = "";
+      if (units.length && prog.currentUnitId){
+        const u = units.find(x=>x.id===prog.currentUnitId);
+        currentName = u ? u.name : "";
+      } else {
+        const sorted = lessons.slice().sort((a,b)=> a.date<b.date?1:-1);
+        const withUnit = sorted.find(l=>l.unit);
+        currentName = withUnit ? withUnit.unit : "（未記録）";
+      }
+      const pct = prog.totalPlanned>0 ? Math.round(prog.percent*100) : 0;
+      h += `<div class="listitem" data-p-course="${c.id}"><span class="t">${esc(c.classLabel)}</span>
+        <span class="muted">到達単元：${esc(currentName)} ／ 実施 ${doneCount} コマ</span>
+        ${units.length?`<div class="bar" style="margin-top:6px"><div style="width:${pct}%"></div></div>
+        <span class="muted">単元進度 ${prog.totalScore} / ${prog.totalPlanned} コマ（${pct}%）</span>`:`<br><span class="muted">単元マスタ未登録（自由記述の到達単元を表示）</span>`}
+      </div>`;
+    }
+  }
+  const course = state.courses.find(c=>c.id===state.selectedCourseId) || null;
+  if (course){
+    const units = (await getUnitsByCourse(course.id)).slice().sort((a,b)=>(a.order||0)-(b.order||0));
+    const lessons = await dbGetByIndex("lessons","byCourse",course.id);
+    const prog = computeProgress(units, lessons);
+    const perMap = {}; for (const pu of prog.perUnit) perMap[pu.unitId]=pu;
+    h += `<div class="card"><h3 class="sect" style="margin-top:0">単元マスタ ― ${esc(course.subject)} ${esc(course.name)}（${esc(course.classLabel)}）</h3>
+    <label class="f">講座を選ぶ</label><select class="t" id="pCourseSel">${courseOptions(course.id)}</select>
+    ${units.map((u,i)=>{
+      const pu = perMap[u.id] || { planned: u.plannedLessons||0, done: 0 };
+      const pct = pu.planned>0 ? Math.min(100, Math.round(pu.done/pu.planned*100)) : 0;
+      return `<div class="listitem" style="cursor:default">
+        <div class="rowflex">
+          <span style="flex:1;min-width:180px">単元名 <input class="t" data-u-name="${u.id}" value="${esc(u.name)}"></span>
+          <span>予定コマ <input class="t smallnum" type="number" data-u-planned="${u.id}" value="${esc(u.plannedLessons||0)}"></span>
+          <button class="btn small ghost" data-u-up="${u.id}" ${i===0?"disabled":""}>▲ 上へ</button>
+          <button class="btn small ghost" data-u-down="${u.id}" ${i===units.length-1?"disabled":""}>▼ 下へ</button>
+          <button class="btn small danger" data-u-del="${u.id}">削除</button>
+        </div>
+        <div class="bar" style="margin-top:6px"><div style="width:${pct}%"></div></div>
+        <span class="muted">実施 ${pu.done} ／ 予定 ${pu.planned} コマ</span>
+      </div>`;
+    }).join("") || `<p class="muted">単元はまだ登録されていません。</p>`}
+    <h3 class="sect">単元を追加</h3>
+    <div class="rowflex"><span style="flex:1;min-width:180px"><input class="t" id="puName" placeholder="単元名"></span>
+    <span>予定コマ <input class="t smallnum" type="number" id="puPlanned" value="5"></span>
+    <button class="btn gold" id="puAdd">追加</button></div></div>`;
+  }
+  root.innerHTML = h;
+  bindHome("pHome");
+  root.querySelectorAll("[data-p-course]").forEach(el=>el.onclick=()=>{ state.selectedCourseId=el.dataset.pCourse; render(); });
+  if (!course) return;
+  document.getElementById("pCourseSel").onchange = (e)=>{ state.selectedCourseId=e.target.value||null; render(); };
+  const unitsNow = (await getUnitsByCourse(course.id)).slice().sort((a,b)=>(a.order||0)-(b.order||0));
+  const saveUnit = async (u)=>{ await dbPut("units", u); };
+  root.querySelectorAll("[data-u-name]").forEach(el=>el.addEventListener("change", async ()=>{
+    const u = unitsNow.find(x=>x.id===el.dataset.uName); if(!u) return;
+    u.name = el.value; await saveUnit(u); toast("単元名を保存しました");
+  }));
+  root.querySelectorAll("[data-u-planned]").forEach(el=>el.addEventListener("change", async ()=>{
+    const u = unitsNow.find(x=>x.id===el.dataset.uPlanned); if(!u) return;
+    u.plannedLessons = Number(el.value)||0; await saveUnit(u); render();
+  }));
+  root.querySelectorAll("[data-u-del]").forEach(b=>b.onclick=async ()=>{ await dbDelete("units", b.dataset.uDel); toast("単元を削除しました"); render(); });
+  const swapOrder = async (id, dir)=>{
+    const idx = unitsNow.findIndex(x=>x.id===id);
+    const j = idx + dir;
+    if (idx<0 || j<0 || j>=unitsNow.length) return;
+    const a = unitsNow[idx], b = unitsNow[j];
+    const tmp = a.order; a.order = b.order; b.order = tmp;
+    await saveUnit(a); await saveUnit(b); render();
+  };
+  root.querySelectorAll("[data-u-up]").forEach(b=>b.onclick=()=>swapOrder(b.dataset.uUp, -1));
+  root.querySelectorAll("[data-u-down]").forEach(b=>b.onclick=()=>swapOrder(b.dataset.uDown, 1));
+  document.getElementById("puAdd").onclick = async ()=>{
+    const name = document.getElementById("puName").value.trim();
+    if (!name){ toast("単元名を入力してください"); return; }
+    const maxOrder = unitsNow.length ? Math.max(...unitsNow.map(u=>u.order||0)) : 0;
+    await dbPut("units", { id: uuid(), courseId: course.id, name,
+      order: maxOrder+1, plannedLessons: Number(document.getElementById("puPlanned").value)||0, level: 1 });
+    toast("単元を追加しました"); render();
+  };
+}
+
 // ===== 起動 =====
 (async function boot(){
   try {
     await openDB();
     let schema = await dbGet("meta", "schema");
-    if (!schema){ schema = { key:"schema", schemaVersion: 1, createdAt: new Date().toISOString() }; await dbPut("meta", schema); }
+    if (!schema){ schema = { key:"schema", schemaVersion: DB_VERSION, createdAt: new Date().toISOString() }; await dbPut("meta", schema); }
+    else if (schema.schemaVersion !== DB_VERSION){ schema.schemaVersion = DB_VERSION; await dbPut("meta", schema); }
     state.security = await dbGet("meta", "security");
     if (!state.security){ startWizard(1); }
     else showLock();
