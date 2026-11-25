@@ -124,6 +124,8 @@ table.plain th{background:var(--paper2);color:var(--navy)}
 .bar>div{height:100%;background:var(--ok)}
 input.t.smallnum{max-width:110px;display:inline-block}
 .samplebanner{background:#fdf6dd;border-bottom:3px solid var(--gold);color:var(--navy);padding:10px 14px;font-size:16px;font-weight:700;text-align:center}
+.archivebanner{background:#e8e4da;border-bottom:3px solid #8a8378;color:#4a463e;padding:10px 14px;font-size:16px;font-weight:700;text-align:center}
+.archived-ro input,.archived-ro textarea,.archived-ro select{pointer-events:none;opacity:.72}
 .warnbox{background:#fdf0f0;border:1.5px solid var(--danger);border-radius:10px;padding:10px 12px;margin:10px 0}
 </style>
 </head>
@@ -131,7 +133,7 @@ input.t.smallnum{max-width:110px;display:inline-block}
 
 <header id="appHeader" class="hidden">
   <div class="hrow">
-    <div class="appname">KyomuNote<small>デジタル教務手帳 v3.1.0</small></div>
+    <div class="appname">KyomuNote<small>デジタル教務手帳 v4.0.0</small></div>
     <div class="hspacer"></div>
     <span id="headerYear" class="muted" style="color:#cdbf9d"></span>
     <button class="hbtn" id="helpBtn" title="この画面のヘルプ">？ ヘルプ</button>
@@ -148,6 +150,7 @@ input.t.smallnum{max-width:110px;display:inline-block}
     <button class="hbtn" data-nav="settings">設定</button>
   </nav>
   <div id="sampleBanner" class="samplebanner hidden">サンプルデータ表示中 ― これは練習用の架空のデータです</div>
+  <div id="archiveBanner" class="archivebanner hidden">アーカイブ年度 ― 閲覧のみです（編集はできません）</div>
 </header>
 
 <main id="viewRoot" class="hidden"></main>
@@ -157,8 +160,14 @@ input.t.smallnum{max-width:110px;display:inline-block}
   <div class="lockbox">
     <div class="logotitle">
       <div class="big">KyomuNote</div>
-      <div class="sub">デジタル教務手帳 ― 第3期 v3.1.0</div>
-      <p class="muted">PINを入力してロックを解除してください。<br>データはこの端末の中だけに保存されます。</p>
+      <div class="sub">デジタル教務手帳 ― 第4期 v4.0.0</div>
+      <p class="muted" id="lockGuide">PINを入力してロックを解除してください。<br>データはこの端末の中だけに保存されます。</p>
+    </div>
+    <div id="passphraseRow" class="hidden" style="margin:10px 0">
+      <input class="t" id="passphraseInput" type="password" autocomplete="off" placeholder="パスフレーズ" style="font-size:20px;text-align:center;max-width:340px;margin:0 auto;display:block">
+      <div class="rowflex" style="justify-content:center;margin-top:10px">
+        <button class="btn gold" id="passphraseUnlockBtn" style="min-width:200px">ロック解除</button>
+      </div>
     </div>
     <div class="pindots" id="pinDots">○○○○</div>
     <div class="lockmsg" id="lockMsg"></div>
@@ -1007,6 +1016,72 @@ function l3SessionActive(session, now, idleMin = L3_IDLE_DEFAULT_MIN) {
   return (now - (session.lastActive || 0)) < idleMin * 60000;
 }
 
+// ================= 第4期ロジック =================
+
+// ---------- 生徒の在籍状態（転入・転出・クラス替え。PHASE4_DESIGN §4.3＋本人の追加確認） ----------
+// 生徒レコードの暗号化本文に status を持つ。未設定は "active"（在籍）として扱う。
+const STUDENT_STATUSES = [
+  { id: "active", label: "在籍" },
+  { id: "left", label: "転出" },
+];
+function studentStatusLabel(id) {
+  const s = STUDENT_STATUSES.find((x) => x.id === id);
+  return s ? s.label : "在籍";
+}
+function isStudentLeft(student) {
+  return !!student && student.status === "left";
+}
+// 所属（memberships）の有効期間判定。joinedOn は所属開始日、leftOn は所属終了日（その日から所属しない）。
+// どちらも未設定なら常時有効。過去の座席・出欠表示が壊れないよう、日付で判定できる形にする。
+function membershipActiveOn(m, dateStr) {
+  if (!m || !dateStr) return false;
+  if (m.joinedOn && dateStr < m.joinedOn) return false;
+  if (m.leftOn && dateStr >= m.leftOn) return false;
+  return true;
+}
+
+// ---------- バックアップのパスフレーズ（PHASE4_DESIGN §6.2・§7.3） ----------
+function validatePassphrase(pw) {
+  const s = pw == null ? "" : String(pw);
+  const reasons = [];
+  if (s.length < 8) reasons.push("8文字以上にしてください");
+  const strength = s.length >= 12 ? "strong" : (s.length >= 8 ? "ok" : "weak");
+  return { ok: reasons.length === 0, reasons, strength, length: s.length };
+}
+
+// ---------- 暗号化バックアップ封筒（.kyomuenc。PHASE4_DESIGN §6.2・§6.3） ----------
+const BACKUP_FORMAT = "kyomuenc";
+const BACKUP_VERSION = 1;
+const BACKUP_KDF_MIN_ITERATIONS = 10000;
+const BACKUP_KDF_MAX_ITERATIONS = 2000000;
+function validateBackupEnvelope(env) {
+  if (!env || typeof env !== "object") return { ok: false, error: "ファイルの形式が違います" };
+  if (env.format !== BACKUP_FORMAT) return { ok: false, error: "KyomuNote のバックアップファイルではありません" };
+  if (Number(env.version) !== BACKUP_VERSION) return { ok: false, error: "バックアップの版が対応していません" };
+  const kdf = env.kdf || {};
+  if (kdf.algo !== "PBKDF2-HMAC-SHA-256") return { ok: false, error: "鍵の導出方式が対応していません" };
+  const it = Number(kdf.iterations);
+  if (!Number.isFinite(it) || it < BACKUP_KDF_MIN_ITERATIONS || it > BACKUP_KDF_MAX_ITERATIONS) {
+    return { ok: false, error: "鍵の導出パラメータが異常なため、読み込みを中止しました" };
+  }
+  if (env.cipher !== "AES-256-GCM") return { ok: false, error: "暗号化方式が対応していません" };
+  if (typeof env.salt !== "string" && !(kdf && typeof kdf.salt === "string")) return { ok: false, error: "ファイルが壊れています" };
+  if (typeof env.iv !== "string" || typeof env.data !== "string") return { ok: false, error: "ファイルが壊れています" };
+  return { ok: true };
+}
+// 読み込み時の突き合わせ（PHASE4_DESIGN §6.3）：同IDなら updatedAt の新しい方を採用する
+function mergeDecision(localUpdatedAt, incomingUpdatedAt) {
+  if (localUpdatedAt == null) return "add";
+  const lt = Date.parse(localUpdatedAt) || 0;
+  const it = Date.parse(incomingUpdatedAt) || 0;
+  if (it > lt) return "update";
+  return "skip";
+}
+// シュレッダーの確認フレーズ（PHASE4_DESIGN §5.2）
+function shredderPhrase(yearId) {
+  return `${yearId}年度を消去`;
+}
+
 function uuid() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
   return "id-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
@@ -1041,14 +1116,18 @@ const LOGIC = {
   BUILTIN_DOC_TEMPLATES, builtinTemplate, resolveDocTemplate, obsToSectionViewpoint,
   buildCommentMaterials, anonymizeText, todosDueList,
   L3_IDLE_DEFAULT_MIN, l3SessionActive,
+  STUDENT_STATUSES, studentStatusLabel, isStudentLeft, membershipActiveOn,
+  validatePassphrase, BACKUP_FORMAT, BACKUP_VERSION,
+  BACKUP_KDF_MIN_ITERATIONS, BACKUP_KDF_MAX_ITERATIONS,
+  validateBackupEnvelope, mergeDecision, shredderPhrase,
 };
 
 // KyomuNote db.mjs — IndexedDB アクセス層（素の IDB API の Promise ラッパー）
-// DB名 KyomuNoteDB version 3 / 第1期7ストア＋第2期13ストア＋第3期13ストア（PHASE3_DESIGN §3.1・§3.5＋要確認マーカー）
+// DB名 KyomuNoteDB version 4 / 第1期7ストア＋第2期13ストア＋第3期13ストア＋第4期1ストア（transferLog）
 // ブラウザ用モジュール。build.mjs が export を外して index.html に連結する。
 
 const DB_NAME = "KyomuNoteDB";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const STORE_NAMES = [
   "meta", "years", "terms", "courses", "baseSlots", "lessons", "events",
   "groups", "students", "memberships", "seatPlans", "attendance",
@@ -1056,7 +1135,7 @@ const STORE_NAMES = [
   "observations", "units", "gradeSettings", "gradeSnapshots",
   "interviews", "contacts", "careNotes", "guidanceRecords", "careerRecords",
   "memberProfiles", "clubActivities", "commentDrafts", "duties",
-  "workRecords", "todos", "docTemplates", "reviewMarkers",
+  "workRecords", "todos", "docTemplates", "reviewMarkers", "transferLog",
 ];
 
 let _dbPromise = null;
@@ -1158,6 +1237,11 @@ function openDB() {
         reviewMarkers.createIndex("byStudent", "studentId", { unique: false });
         reviewMarkers.createIndex("byYear", "yearId", { unique: false });
       }
+      if (oldVersion < 4) {
+        // 第4期：ストアを「追加するだけ」。既存33ストアとそのデータには一切触れない（PHASE4_DESIGN §3.1・§10.1）
+        const transferLog = db.createObjectStore("transferLog", { keyPath: "id" });
+        transferLog.createIndex("byDate", "at", { unique: false });
+      }
     };
     req.onsuccess = () => {
       const db = req.result;
@@ -1187,16 +1271,60 @@ async function _store(name, mode) {
   return db.transaction(name, mode).objectStore(name);
 }
 
+// ===== 第4期：アーカイブ年度の書き込みガード（PHASE4_DESIGN §5.1 データ層の守り）=====
+// アーカイブ済み年度に属するレコードへの put/delete をデータ層で拒否する。
+// 年度の解決は「レコードの yearId を直接見る → 登録済みリゾルバ（間接参照）」の順。
+// meta・years・docTemplates・transferLog は年度に属さないため対象外。
+const GUARD_EXEMPT_STORES = new Set(["meta", "years", "docTemplates", "transferLog"]);
+let _archivedYearIds = new Set();
+let _guardSuspended = 0;
+const _yearResolvers = {};
+function setArchivedYearIds(ids) {
+  _archivedYearIds = new Set((ids || []).map((x) => Number(x)));
+}
+function getArchivedYearIds() { return Array.from(_archivedYearIds); }
+function registerYearResolver(store, fn) { _yearResolvers[store] = fn; }
+async function runWithoutGuard(fn) {
+  _guardSuspended++;
+  try { return await fn(); } finally { _guardSuspended--; }
+}
+async function _resolveRecordYearId(store, rec) {
+  if (!rec || typeof rec !== "object") return null;
+  if (rec.yearId != null && rec.yearId !== "") return Number(rec.yearId);
+  const r = _yearResolvers[store];
+  if (r) {
+    try { const y = await r(rec); return y == null ? null : Number(y); } catch (e) { return null; }
+  }
+  return null;
+}
+async function resolveRecordYearId(store, rec) { return _resolveRecordYearId(store, rec); }
+async function _guardCheck(store, rec) {
+  if (_guardSuspended > 0) return;
+  if (!_archivedYearIds.size) return;
+  if (GUARD_EXEMPT_STORES.has(store)) return;
+  const y = await _resolveRecordYearId(store, rec);
+  if (y != null && _archivedYearIds.has(y)) {
+    const err = new Error("アーカイブ年度は閲覧のみです");
+    err.code = "ARCHIVED_YEAR";
+    throw err;
+  }
+}
+
 async function dbGet(store, key) {
   const s = await _store(store, "readonly");
   const v = await _reqToPromise(s.get(key));
   return v === undefined ? null : v;
 }
 async function dbPut(store, value) {
+  await _guardCheck(store, value);
   const s = await _store(store, "readwrite");
   return _reqToPromise(s.put(value));
 }
 async function dbDelete(store, key) {
+  if (_guardSuspended <= 0 && _archivedYearIds.size && !GUARD_EXEMPT_STORES.has(store)) {
+    const existing = await dbGet(store, key);
+    if (existing) await _guardCheck(store, existing);
+  }
   const s = await _store(store, "readwrite");
   return _reqToPromise(s.delete(key));
 }
@@ -1274,6 +1402,7 @@ async function getReviewMarkersByYear(yearId) { return dbGetByIndex("reviewMarke
 
 const KyomuDB = {
   DB_NAME, DB_VERSION, STORE_NAMES,
+  setArchivedYearIds, getArchivedYearIds, registerYearResolver, runWithoutGuard, resolveRecordYearId,
   open: openDB, openDB,
   get: dbGet, put: dbPut, delete: dbDelete, remove: dbDelete, getAll: dbGetAll,
   getByIndex: dbGetByIndex, countByIndex: dbCountByIndex, getRange: dbGetRange,
@@ -1364,8 +1493,8 @@ const HELP_TEXTS = {
     steps: ["入力すると自動で保存されます", "単元は単元マスタから選ぶことも、自由に書くこともできます"],
     notes: ["ここは Level 1（一般業務）の記録です。生徒個人に深く関わる内容は、生徒ページ（カルテ）や生徒指導に書いてください"] },
   settings: { keywords: "設定 年度 学期 講座 基本時間割 PIN 自動ロック 定型文 AI",
-    can: ["年度・学期・講座・基本時間割の管理、PIN変更、自動ロック、定型文、CSV出力、AI支援の設定ができます"],
-    steps: ["年度を切り替えると、その年度のデータが表示されます", "PIN変更は現在のPINの照合が必要です"],
+    can: ["年度・学期・講座・基本時間割の管理、ロックの変更、自動ロック、定型文、CSV出力、AI支援の設定ができます", "年度移行ウィザード、アーカイブ、暗号化バックアップ（受け渡し）、シュレッダー、受け渡し履歴もここにあります"],
+    steps: ["年度を切り替えると、その年度のデータが表示されます", "ロックの変更は現在のPIN／パスフレーズの照合が必要です。変更すると暗号化された記録すべてを新しい鍵で暗号化し直します"],
     notes: ["データはこの端末の中だけに保存され、外部へは送信されません", "AI支援は自分のPCで動くローカルAI（Ollama）への接続だけです。既定は OFF です"] },
   roster: { keywords: "名簿 グループ イニシャル 出席番号",
     can: ["学級・講座・部活のグループ名簿を編集できます", "氏名を保存しない「イニシャル／番号のみ」運用も選べます"],
@@ -1423,12 +1552,29 @@ const HELP_TEXTS = {
     can: ["「要確認」マーカーを付けた対象をまとめて見直せます", "タップで該当箇所（成績・生徒ページ・所見）へ飛べます", "直したらその場でマーカーを外せます"],
     steps: ["気になる対象の「⚑」ボタンでマーカーを付けます（短いメモも残せます）", "この一覧で残っている件数と内容を確認します", "対象を開いて直し、マーカーを外すと一覧から消えます"],
     notes: ["マーカーは Level 2 で暗号化保存されます", "プライバシーモードでは氏名を出さず番号表示になります", "機械の集計や下書きは鵜呑みにせず、気づいた違和感を残して直すための仕組みです"] },
+  migration: { keywords: "年度移行 ウィザード 引き継ぎ 持ち上がり 申し送り 新年度",
+    can: ["新しい年度を作り、講座・時間割などの「型」を複製できます", "持ち上がる生徒と、申し送り（配慮事項・対応中の指導案件・進路・所見メモ）を引き継げます", "途中で閉じても、続きから再開できます"],
+    steps: ["先に設定画面で暗号化バックアップを書き出しておくことをおすすめします", "画面の案内に沿って、年度・型・生徒・申し送り・ToDo を選んでいきます", "最後に「移行を実行する」を押すと、結果の件数が表示されます"],
+    notes: ["生徒は新年度では新しいIDになりますが、付け替えはアプリが行います。先生が確認するのは氏名・クラスの一覧だけです", "引き継いだ記録には出所（元の年度と記録）が残り、元の年度の記録はそのまま残ります", "この引き継ぎは「同じ先生が次の年度も使う」ためのものです。別の先生への引き渡しには使わないでください"] },
+  backup: { keywords: "バックアップ 受け渡し kyomuenc パスフレーズ 書き出し 読み込み 端末",
+    can: ["年度のデータを、パスフレーズで暗号化したファイル（.kyomuenc）に書き出せます", "別の端末の KyomuNote で読み込むと、その端末の鍵で保存し直されます", "読み込みでは、同じ記録どうしは更新日時が新しい方が残ります"],
+    steps: ["設定画面の「暗号化バックアップ（受け渡し）」で、年度とパスフレーズを指定して書き出します", "ファイルは手動で別の端末へ渡してください（USB・メールなど）", "受け取った端末で、ファイルとパスフレーズを指定して読み込みます"],
+    notes: ["自動で同期する仕組みではありません。受け渡しは手動のファイル経由だけです", "パスフレーズはこのアプリの PIN とは別です（最低8文字・12文字以上が目安）。忘れるとファイルは開けません", "この端末でアーカイブ中の年度は、ファイルから更新されません"] },
+  archive: { keywords: "アーカイブ 閲覧のみ 解除 保管",
+    can: ["終わった年度を「閲覧のみ」にして、誤って編集しないようにできます", "閲覧・印刷・転記・書き出しはそのまま使えます", "解除には PIN／パスフレーズの再入力が必要です"],
+    steps: ["設定画面の「アーカイブの管理」で、年度の「アーカイブする」を押します", "解除するときは、同じ場所で「アーカイブを解除する」を押し、PIN／パスフレーズを入力します"],
+    notes: ["画面の入力欄を止めるだけでなく、データの保存自体も拒否する二重の守りになっています", "アーカイブ中の年度は、日々の画面の集約（期限ToDoなど）からは外れます"] },
+  shredder: { keywords: "シュレッダー 削除 完全削除 廃棄 年度",
+    can: ["年度のデータを、この端末からまとめて消せます", "確認は5段階（件数の提示→バックアップの促し→PIN再入力→確認フレーズの入力→実行）です"],
+    steps: ["設定画面の「シュレッダーを開く」から、年度を選びます", "件数を確認し、バックアップの確認、PIN／パスフレーズの再入力、確認フレーズの入力を順に進めます", "最後の赤いボタンを押すと消去されます"],
+    notes: ["この操作は取り消せません。戻せるのは、事前に書き出した暗号化バックアップだけです", "端末内のデータベースからは削除されますが、記憶領域から物理的に完全に消えたことまでは保証できません", "既に書き出したバックアップファイルは、この操作では消えません"] },
 };
+const HELP_EXTRA_TITLES = { migration: "年度移行ウィザード", backup: "暗号化バックアップ（受け渡し）", archive: "アーカイブ", shredder: "シュレッダー" };
 function helpFor(viewId){ return HELP_TEXTS[viewId] || null; }
 function openHelp(viewId){
   const area = areaById(viewId);
   const h = helpFor(viewId);
-  const title = area ? area.name : viewId;
+  const title = area ? area.name : (HELP_EXTRA_TITLES[viewId] || viewId);
   if (!h){
     openSheet(`<h3 class="sect" style="margin-top:0">ヘルプ ― ${esc(title)}</h3>
     <p class="muted">この画面のヘルプはまだ用意されていません。</p>
@@ -1451,7 +1597,7 @@ function openHelp(viewId){
 }
 
 // ===== 状態 =====
-const APP_VERSION = "3.1.0";
+const APP_VERSION = "4.0.0";
 const SETTINGS_KEY = "kyomunote.settings.v1";
 const KEYCHECK_PLAIN = "KyomuNote-KeyCheck-v1";
 const state = {
@@ -1575,6 +1721,692 @@ async function getEncByIndex(store, idx, q){
 window.__KYOMU__.crypto = { encryptRecord, decryptRecord };
 window.__KYOMU__.enc = { putEnc, getEnc, getAllEnc, getEncByIndex };
 
+// ===== 第4期：引き継ぎ・受け渡し・監査対応（PHASE4_DESIGN）=====
+// --- Level 1 本文の暗号化（§3.3）。対象ストアの自由記述を enc 本文へ分離する ---
+const L1_BODY_FIELDS = {
+  lessons: ["unit","goal","plan","board","materials","progress","reflection","handoff","gapMemo","shortMemo"],
+  events: ["memo"],
+  workRecords: ["body","place","cost","learning"],
+  todos: ["title","memo"],
+};
+const L1_STORES = Object.keys(L1_BODY_FIELDS);
+// 暗号化ストアごとの平文キー（書き出し・読み込み・鍵の張り替えでの分割に使う）。
+// ここに無い項目はすべて暗号化本文として扱う。events は特殊（memo 以外すべて平文キー）。
+const ENC_PLAIN_KEYS = {
+  students: ["id","yearId"],
+  seatPlans: ["id","groupId","yearId","kind","name","effectiveFrom","rows","cols"],
+  attendance: ["id","date","yearId","courseId","groupId"],
+  submissionRecords: ["id","courseId","yearId"],
+  scoreRecords: ["id","courseId","yearId"],
+  observations: ["id","studentId","courseId","lessonId","date","yearId"],
+  interviews: ["id","studentId","date","yearId"],
+  contacts: ["id","studentId","date","yearId"],
+  careNotes: ["id","studentId","yearId"],
+  guidanceRecords: ["id","studentId","caseId","date","yearId"],
+  careerRecords: ["id","studentId","date","yearId"],
+  memberProfiles: ["id","studentId","groupId","yearId"],
+  clubActivities: ["id","groupId","date","yearId"],
+  commentDrafts: ["id","studentId","docKind","termId","yearId"],
+  reviewMarkers: ["id","studentId","targetType","targetId","yearId"],
+  gradeSnapshots: ["id","courseId","termId","yearId"],
+  lessons: ["id","date","period","yearId","termId","courseId","status","hasRecord","unitId"],
+  events: null,
+  workRecords: ["id","dutyId","yearId","date","kind","title"],
+  todos: ["id","yearId","dueDate","priority","done","originType","originId"],
+};
+const ENC_STORES = Object.keys(ENC_PLAIN_KEYS);
+function isEncStore(store){ return store in ENC_PLAIN_KEYS; }
+async function decAll(records){
+  const out = [];
+  for (const r of records || []) out.push(await decryptMerge(r));
+  return out;
+}
+// 復号済みレコード → { plain（平文キー）, body（暗号化本文） } に分ける
+function splitBody(store, merged){
+  const src = merged || {};
+  const plain = {}, body = {};
+  if (store === "events"){
+    for (const k of Object.keys(src)){
+      if (k === "enc" || k === "decryptError") continue;
+      if (k === "memo") body[k] = src[k]; else plain[k] = src[k];
+    }
+    return { plain, body };
+  }
+  if (L1_BODY_FIELDS[store]){
+    const bf = L1_BODY_FIELDS[store];
+    for (const k of Object.keys(src)){
+      if (k === "enc" || k === "decryptError") continue;
+      if (bf.includes(k)) body[k] = src[k]; else plain[k] = src[k];
+    }
+    return { plain, body };
+  }
+  const pk = ENC_PLAIN_KEYS[store] || ["id"];
+  for (const k of Object.keys(src)){
+    if (k === "enc" || k === "decryptError") continue;
+    if (pk.includes(k) || k === "level") plain[k] = src[k]; else body[k] = src[k];
+  }
+  return { plain, body };
+}
+// Level 1 ストアへの保存（本文を暗号化して書く）。戻り値はマージ済みレコード。
+async function putL1(store, merged){
+  const { plain, body } = splitBody(store, merged);
+  if (plain.level == null) plain.level = 1;
+  const rec = await putEnc(store, plain, body);
+  return Object.assign({}, merged, { updatedAt: rec.updatedAt });
+}
+
+// --- 受け渡し・操作の履歴（transferLog。内容は残さず「いつ・何を・何件」だけ） ---
+async function logTransfer(kind, yearIds, counts, note){
+  try {
+    await dbPut("transferLog", { id: uuid(), at: new Date().toISOString(), kind,
+      yearIds: (yearIds || []).map(Number), counts: counts || {}, note: note || "" });
+  } catch(e){ /* 履歴の記録失敗で本体の操作を止めない */ }
+}
+function transferKindLabel(kind){
+  return ({ export: "バックアップ書き出し", import: "バックアップ読み込み", csvExport: "CSV書き出し",
+    migration: "年度移行", archive: "アーカイブ", unarchive: "アーカイブ解除",
+    shred: "シュレッダー", keyChange: "ロックの変更", encryptMigrate: "暗号化への移行" })[kind] || kind;
+}
+async function getTransferLog(){
+  const all = await dbGetAll("transferLog");
+  return all.sort((a,b)=> (a.at||"") < (b.at||"") ? 1 : -1);
+}
+
+// --- アーカイブ年度のガード（db層）への連携 ---
+function registerPhase4Resolvers(){
+  registerYearResolver("units", async (rec)=>{ const c = await dbGet("courses", rec.courseId); return c ? c.yearId : null; });
+  registerYearResolver("gradeSnapshots", async (rec)=>{ const c = await dbGet("courses", rec.courseId); return c ? c.yearId : null; });
+  registerYearResolver("gradeSettings", async (rec)=>{ const c = await dbGet("courses", rec.courseId); return c ? c.yearId : null; });
+  registerYearResolver("assignments", async (rec)=>{ const c = await dbGet("courses", rec.courseId); return c ? c.yearId : null; });
+  registerYearResolver("tests", async (rec)=>{ const c = await dbGet("courses", rec.courseId); return c ? c.yearId : null; });
+  registerYearResolver("memberships", async (rec)=>{ const g = await dbGet("groups", rec.groupId); return g ? g.yearId : null; });
+}
+async function refreshArchivedGuard(){
+  registerPhase4Resolvers();
+  const years = await dbGetAll("years");
+  setArchivedYearIds(years.filter(y=>y.archived).map(y=>y.id));
+  return years;
+}
+function isArchivedYear(yid){
+  const id = yid == null ? state.currentYearId : yid;
+  const y = state.years.find(x=>Number(x.id) === Number(id));
+  return !!(y && y.archived);
+}
+
+// --- ロック秘密（PIN／パスフレーズ共通）の照合 ---
+async function verifySecret(secret){
+  if (!state.security || secret == null || String(secret) === "") return false;
+  const key = await deriveKey(String(secret), state.security.salt, state.security.iterations);
+  return verifyKeyCheck(key, state.security.keyCheck);
+}
+function secretIsPassphrase(){ return !!(state.security && state.security.type === "passphrase"); }
+
+// --- アーカイブ／解除 ---
+async function archiveYear(yearId){
+  const y = await dbGet("years", Number(yearId));
+  if (!y) throw new Error("年度が見つかりません");
+  y.archived = true; y.archivedAt = new Date().toISOString();
+  await dbPut("years", y);
+  await logTransfer("archive", [Number(yearId)], {}, "");
+  state.years = (await dbGetAll("years")).sort((a,b)=>a.id-b.id);
+  await refreshArchivedGuard();
+  return y;
+}
+async function unarchiveYear(yearId, secret){
+  if (!(await verifySecret(secret))) throw new Error("PIN／パスフレーズが違います");
+  const y = await dbGet("years", Number(yearId));
+  if (!y) throw new Error("年度が見つかりません");
+  y.archived = false; delete y.archivedAt;
+  await dbPut("years", y);
+  await logTransfer("unarchive", [Number(yearId)], {}, "");
+  state.years = (await dbGetAll("years")).sort((a,b)=>a.id-b.id);
+  await refreshArchivedGuard();
+  return y;
+}
+
+// --- 年度単位の件数集計とシュレッダー（§5.2） ---
+const L3_STORES = ["interviews","contacts","careNotes","guidanceRecords"];
+async function countsForYear(yearId){
+  await refreshArchivedGuard(); // 年度解決リゾルバの登録を保証する（監査での発見による防御）
+  const perStore = {};
+  let total = 0, level3 = 0, students = 0;
+  for (const store of STORE_NAMES){
+    if (store === "meta" || store === "transferLog" || store === "docTemplates") continue;
+    const all = await dbGetAll(store);
+    let n = 0;
+    for (const rec of all){
+      const y = store === "years" ? Number(rec.id) : await resolveRecordYearId(store, rec);
+      if (y === Number(yearId)){
+        n++;
+        if (L3_STORES.includes(store) || Number(rec.level) === 3) level3++;
+      }
+    }
+    if (n) perStore[store] = n;
+    total += n;
+    if (store === "students") students = n;
+  }
+  return { total, level3, students, perStore };
+}
+async function shredYear(yearId){
+  await refreshArchivedGuard();
+  const counts = await countsForYear(yearId);
+  await runWithoutGuard(async ()=>{
+    for (const store of STORE_NAMES){
+      if (store === "meta" || store === "transferLog" || store === "docTemplates") continue;
+      const all = await dbGetAll(store);
+      for (const rec of all){
+        const y = store === "years" ? Number(rec.id) : await resolveRecordYearId(store, rec);
+        if (y !== Number(yearId)) continue;
+        if (store === "memberships") await dbDelete(store, [rec.groupId, rec.studentId]);
+        else await dbDelete(store, rec.id);
+      }
+    }
+  });
+  await logTransfer("shred", [Number(yearId)], { total: counts.total, level3: counts.level3, students: counts.students }, "");
+  state.years = (await dbGetAll("years")).sort((a,b)=>a.id-b.id);
+  await refreshArchivedGuard();
+  if (Number(state.currentYearId) === Number(yearId)){
+    state.currentYearId = state.years.length ? state.years[0].id : null;
+    saveSettings({ currentYearId: state.currentYearId });
+    await loadYearData();
+  }
+  return counts;
+}
+
+// --- Level 1 暗号化移行の状態と完了操作（§3.3） ---
+function l1HasPlainBody(store, rec){
+  if (!rec || rec.enc) return false;
+  return L1_BODY_FIELDS[store].some(f => typeof rec[f] === "string" && rec[f] !== "");
+}
+async function encryptionStatus(){
+  const out = {};
+  for (const store of L1_STORES){
+    const all = await dbGetAll(store);
+    let plain = 0, enc = 0;
+    for (const rec of all){ if (rec.enc) enc++; else if (l1HasPlainBody(store, rec)) plain++; }
+    out[store] = { plain, enc };
+  }
+  return out;
+}
+async function completeEncryptionMigration(onProgress){
+  let migrated = 0;
+  await runWithoutGuard(async ()=>{
+    for (const store of L1_STORES){
+      const all = await dbGetAll(store);
+      for (const rec of all){
+        if (!l1HasPlainBody(store, rec)) continue;
+        await putL1(store, rec);
+        migrated++;
+        if (onProgress) onProgress(migrated);
+      }
+    }
+  });
+  const st = await encryptionStatus();
+  const remaining = L1_STORES.reduce((a,s)=>a + st[s].plain, 0);
+  await logTransfer("encryptMigrate", [], { migrated, remaining }, "");
+  return { migrated, remaining };
+}
+
+// --- 暗号化バックアップ .kyomuenc（§6。「同期」ではなく手動の受け渡し） ---
+const BACKUP_ITERATIONS = 600000;
+async function deriveFileKey(passphrase, saltB64, iterations){
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(String(passphrase)), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt: new Uint8Array(b64decode(saltB64)), iterations, hash: "SHA-256" },
+    base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+}
+async function collectBackupPayload(yearIds){
+  await refreshArchivedGuard();
+  const ids = (yearIds || []).map(Number);
+  const stores = {};
+  for (const store of STORE_NAMES){
+    if (store === "meta") continue;
+    const all = await dbGetAll(store);
+    const picked = [];
+    for (const rec of all){
+      if (store === "docTemplates"){ picked.push(rec); continue; }
+      if (store === "transferLog"){
+        if ((rec.yearIds || []).some(y => ids.includes(Number(y)))) picked.push(rec);
+        continue;
+      }
+      const y = store === "years" ? Number(rec.id) : await resolveRecordYearId(store, rec);
+      if (y == null || !ids.includes(y)) continue;
+      if (isEncStore(store)){
+        const merged = await decryptMerge(rec);
+        if (merged.decryptError) throw new Error("復号できない記録があるため、書き出しを中止しました");
+        picked.push(merged);
+      } else picked.push(rec);
+    }
+    if (picked.length) stores[store] = picked;
+  }
+  return { schema: 4, exportedAt: new Date().toISOString(), appVersion: APP_VERSION,
+    years: stores.years || [], stores };
+}
+async function exportBackup(yearIds, passphrase){
+  const v = validatePassphrase(passphrase);
+  if (!v.ok) throw new Error("パスフレーズが不十分です（" + v.reasons.join("、") + "）");
+  const payload = await collectBackupPayload(yearIds);
+  const salt = b64encode(crypto.getRandomValues(new Uint8Array(16)).buffer);
+  const key = await deriveFileKey(passphrase, salt, BACKUP_ITERATIONS);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key,
+    new TextEncoder().encode(JSON.stringify(payload)));
+  const envelope = { format: BACKUP_FORMAT, version: BACKUP_VERSION, createdAt: payload.exportedAt,
+    appVersion: APP_VERSION,
+    kdf: { algo: "PBKDF2-HMAC-SHA-256", salt, iterations: BACKUP_ITERATIONS },
+    cipher: "AES-256-GCM", iv: b64encode(iv.buffer), data: b64encode(data) };
+  const label = (yearIds || []).map(y => `${y}年度`).join("-") || "backup";
+  const filename = `kyomunote-backup-${label}-${todayString().replace(/-/g, "")}.kyomuenc`;
+  let total = 0;
+  for (const arr of Object.values(payload.stores)) total += arr.length;
+  await logTransfer("export", (yearIds || []).map(Number), { total }, filename);
+  return { filename, content: JSON.stringify(envelope), payload };
+}
+async function parseBackup(content, passphrase){
+  let env;
+  try { env = JSON.parse(content); }
+  catch(e){ throw new Error("ファイルの形式が違います（バックアップファイルとして読めません）"); }
+  const v = validateBackupEnvelope(env);
+  if (!v.ok) throw new Error(v.error);
+  const key = await deriveFileKey(passphrase, env.kdf.salt, Number(env.kdf.iterations));
+  let plain;
+  try {
+    plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: new Uint8Array(b64decode(env.iv)) }, key, b64decode(env.data));
+  } catch(e){
+    throw new Error("開けませんでした。パスフレーズが違うか、ファイルが壊れています");
+  }
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+async function importBackup(content, passphrase, onProgress){
+  await refreshArchivedGuard();
+  const payload = await parseBackup(content, passphrase);
+  const stores = payload.stores || {};
+  let added = 0, updated = 0, skipped = 0;
+  const localYears = await dbGetAll("years");
+  const localYearMap = new Map(localYears.map(y => [Number(y.id), y]));
+  const payloadYearIds = (stores.years || []).map(y => Number(y.id));
+  // ローカルでアーカイブ済みの年度は、ファイルからの更新を受け付けない（閲覧のみの守りを優先）
+  const skippedArchivedYears = payloadYearIds.filter(yid => {
+    const ly = localYearMap.get(yid);
+    return !!(ly && ly.archived);
+  });
+  const order = ["years", "terms", "courses", "baseSlots", "groups", "duties", "docTemplates",
+    ...STORE_NAMES.filter(s => !["years","terms","courses","baseSlots","groups","duties","docTemplates","meta","transferLog"].includes(s)),
+    "transferLog"];
+  await runWithoutGuard(async ()=>{
+    for (const store of order){
+      const arr = stores[store];
+      if (!arr || !arr.length) continue;
+      for (const rec of arr){
+        if (store !== "docTemplates" && store !== "transferLog"){
+          const y = store === "years" ? Number(rec.id) : await resolveRecordYearId(store, rec);
+          if (y != null && skippedArchivedYears.includes(y)){ skipped++; continue; }
+        }
+        const keyOf = store === "memberships" ? [rec.groupId, rec.studentId] : rec.id;
+        const local = await dbGet(store, keyOf);
+        // 突き合わせは更新日時の比較で行う（更新日時が無いレコードは「最も古い」扱い。
+        // 同じか古いものはそのまま、 strictly 新しいものだけを更新する）
+        let decision;
+        if (!local) decision = "add";
+        else {
+          const lt = Date.parse(local.updatedAt) || 0;
+          const it = Date.parse(rec.updatedAt) || 0;
+          decision = it > lt ? "update" : "skip";
+        }
+        if (decision === "skip"){ skipped++; continue; }
+        if (isEncStore(store)){
+          const { plain, body } = splitBody(store, rec);
+          if (rec.level != null) plain.level = rec.level;
+          const stored = await putEnc(store, plain, body);
+          if (rec.updatedAt){ stored.updatedAt = rec.updatedAt; await dbPut(store, stored); }
+        } else {
+          await dbPut(store, rec);
+        }
+        if (local) updated++; else added++;
+        if (onProgress) onProgress({ added, updated, skipped });
+      }
+    }
+  });
+  await logTransfer("import", payloadYearIds, { added, updated, skipped }, "");
+  state.years = (await dbGetAll("years")).sort((a,b)=>a.id-b.id);
+  await refreshArchivedGuard();
+  if (state.currentYearId) await loadYearData();
+  return { added, updated, skipped,
+    skippedArchivedYears: skippedArchivedYears.length, skippedArchivedYearIds: skippedArchivedYears };
+}
+
+// --- 年度移行エンジン（§4）。計画と対応表を meta に残し、中断・再開と二重実行に耐える ---
+function migrationMetaKey(toYearId){ return `migration-${toYearId}`; }
+async function getMigrationState(toYearId){ return dbGet("meta", migrationMetaKey(toYearId)); }
+async function runMigration(plan, onProgress){
+  if (!plan || plan.fromYearId == null || plan.toYearId == null) throw new Error("移行計画が不正です");
+  const from = Number(plan.fromYearId), to = Number(plan.toYearId);
+  if (from === to) throw new Error("同じ年度へは移行できません");
+  const fromYear = await dbGet("years", from);
+  if (!fromYear) throw new Error("移行元の年度が見つかりません");
+  let mig = await getMigrationState(to);
+  if (!mig || Number(mig.fromYearId) !== from){
+    mig = { key: migrationMetaKey(to), fromYearId: from, toYearId: to,
+      mapping: { courses: {}, groups: {}, students: {}, units: {}, duties: {}, cases: {}, terms: {} },
+      report: null };
+  }
+  const M = mig.mapping;
+  const report = { courses: 0, baseSlots: 0, units: 0, gradeSettings: 0, duties: 0, events: 0,
+    groups: 0, students: 0, todos: 0,
+    handoff: { careNotes: 0, guidanceRecords: 0, careerRecords: 0, observations: 0, interviews: 0, contacts: 0 } };
+  const bump = ()=>{ if (onProgress) onProgress(JSON.parse(JSON.stringify(report))); };
+  const saveMig = async ()=>{ mig.report = report; mig.plan = plan; await dbPut("meta", mig); };
+
+  // 1. 新年度と学期
+  let newYear = await dbGet("years", to);
+  if (!newYear){
+    const r = yearRange(to);
+    newYear = { id: to, startDate: r.startDate, endDate: r.endDate,
+      termSystem: String(plan.termSystem || fromYear.termSystem || "3"),
+      archived: false, carriedFromYearId: from, setupState: "migrating" };
+    await dbPut("years", newYear);
+  }
+  if (!(await getTermsByYear(to)).length){
+    for (const t of defaultTerms(to, newYear.termSystem)) await dbPut("terms", t);
+  }
+  const fromTerms = await getTermsByYear(from);
+  const toTerms = await getTermsByYear(to);
+  fromTerms.forEach((ft, i)=>{
+    const suffix = String(ft.id).split("-T")[1];
+    const tt = toTerms.find(t => String(t.id).split("-T")[1] === suffix) || toTerms[i];
+    if (tt) M.terms[ft.id] = tt.id;
+  });
+  await saveMig();
+
+  // 2. 型の複製（講座・基本時間割・単元・観点設定・分掌）
+  if (plan.copyCourses){
+    const fromCourses = await getCoursesByYear(from);
+    for (const c of fromCourses){
+      if (M.courses[c.id]) continue;
+      const nid = uuid();
+      M.courses[c.id] = nid;
+      await dbPut("courses", Object.assign({}, c, { id: nid, yearId: to, groupId: null }));
+      report.courses++; bump();
+    }
+    const existingSlots = await getBaseSlotsByYear(to);
+    const slotKeys = new Set(existingSlots.map(s => `${s.dayOfWeek}#${s.period}`));
+    for (const s of await getBaseSlotsByYear(from)){
+      const k = `${s.dayOfWeek}#${s.period}`;
+      if (slotKeys.has(k)) continue;
+      await dbPut("baseSlots", Object.assign({}, s, { id: uuid(), yearId: to,
+        courseId: s.courseId ? (M.courses[s.courseId] || null) : null }));
+      slotKeys.add(k); report.baseSlots++; bump();
+    }
+    const fromCourseIds = new Set((await getCoursesByYear(from)).map(c => c.id));
+    for (const u of await dbGetAll("units")){
+      if (!fromCourseIds.has(u.courseId) || M.units[u.id]) continue;
+      const nid = uuid();
+      M.units[u.id] = nid;
+      await dbPut("units", Object.assign({}, u, { id: nid, courseId: M.courses[u.courseId] }));
+      report.units++; bump();
+    }
+    for (const gs of await dbGetAll("gradeSettings")){
+      if (!fromCourseIds.has(gs.courseId)) continue;
+      const nid = `${M.courses[gs.courseId]}:${M.terms[gs.termId] || gs.termId}`;
+      if (await dbGet("gradeSettings", nid)) continue;
+      await dbPut("gradeSettings", Object.assign({}, gs, { id: nid,
+        courseId: M.courses[gs.courseId], termId: M.terms[gs.termId] || gs.termId, yearId: to }));
+      report.gradeSettings++; bump();
+    }
+  }
+  if (plan.copyDuties){
+    for (const d of await getDutiesByYear(from)){
+      if (M.duties[d.id]) continue;
+      const nid = uuid();
+      M.duties[d.id] = nid;
+      await dbPut("duties", Object.assign({}, d, { id: nid, yearId: to }));
+      report.duties++; bump();
+    }
+  }
+
+  // 3. グループと継続生徒の持ち上がり
+  const today = todayString();
+  for (const pg of plan.groups || []){
+    const g = await dbGet("groups", pg.fromGroupId);
+    if (!g) continue;
+    let newGroupId = M.groups[g.id];
+    if (!newGroupId){
+      newGroupId = uuid();
+      M.groups[g.id] = newGroupId;
+      await dbPut("groups", { id: newGroupId, yearId: to, kind: g.kind,
+        name: pg.toName || g.name,
+        courseId: g.courseId ? (M.courses[g.courseId] || null) : null,
+        rosterMode: g.rosterMode, level: 1 });
+      report.groups++; bump();
+      const ng = await dbGet("groups", newGroupId);
+      if (ng && ng.courseId){
+        const nc = await dbGet("courses", ng.courseId);
+        if (nc && !nc.groupId){ nc.groupId = newGroupId; await dbPut("courses", nc); }
+      }
+    }
+    const memberships = await getMembershipsByGroup(g.id);
+    for (const m of memberships){
+      if (m.leftOn && m.leftOn <= today) continue;
+      let newSid = M.students[m.studentId];
+      if (!newSid){
+        const st = await getEnc("students", m.studentId);
+        if (!st || st.decryptError || isStudentLeft(st)) continue;
+        newSid = uuid();
+        M.students[m.studentId] = newSid;
+        const body = {};
+        for (const k of Object.keys(st)){
+          if (["id","yearId","level","updatedAt","enc","decryptError","status","statusDate"].includes(k)) continue;
+          body[k] = st[k];
+        }
+        await putEnc("students", { id: newSid, yearId: to }, body);
+        report.students++; bump();
+      }
+      if (!(await dbGet("memberships", [newGroupId, newSid]))){
+        await dbPut("memberships", { groupId: newGroupId, studentId: newSid, no: m.no,
+          yearId: to, joinedOn: newYear.startDate });
+      }
+    }
+    // 部活動の部員プロフィール（役割・担当）を、持ち上がった部員分だけ複製する
+    if (g.kind === "club"){
+      for (const m of memberships){
+        const newSid = M.students[m.studentId];
+        if (!newSid) continue;
+        const profs = (await dbGetByIndex("memberProfiles", "byStudent", m.studentId)).filter(p => p.groupId === g.id);
+        for (const p of profs){
+          const dec = await decryptMerge(p);
+          if (dec.decryptError) continue;
+          const existing = (await dbGetByIndex("memberProfiles", "byStudent", newSid)).filter(x => x.groupId === newGroupId);
+          if (existing.length) continue;
+          const { plain, body } = splitBody("memberProfiles", dec);
+          plain.id = uuid(); plain.studentId = newSid; plain.groupId = newGroupId; plain.yearId = to;
+          await putEnc("memberProfiles", plain, body);
+        }
+      }
+    }
+    await saveMig();
+  }
+
+  // 4. 申し送り（handoff）の引き継ぎ
+  const hk = plan.handoffKinds || {};
+  let openCases = null;
+  if (hk.guidanceRecords){
+    openCases = new Set();
+    for (const oldSid of Object.keys(M.students)){
+      const recs = await getEncByIndex("guidanceRecords", "byStudent", oldSid);
+      for (const c of groupGuidanceCases(recs)){
+        if (c.status === "ongoing" || c.status === "monitoring") openCases.add(c.caseId);
+      }
+    }
+  }
+  for (const store of ["careNotes","guidanceRecords","careerRecords","observations","interviews","contacts"]){
+    if (!hk[store]) continue;
+    for (const [oldSid, newSid] of Object.entries(M.students)){
+      const recs = await getEncByIndex(store, "byStudent", oldSid);
+      const existing = await getEncByIndex(store, "byStudent", newSid);
+      const carriedIds = new Set(existing.map(e => e.carriedFrom && e.carriedFrom.recordId).filter(Boolean));
+      for (const rec of recs){
+        if (!rec || rec.decryptError) continue;
+        // カルテ記録は handoff タグ付きのみ。所見メモは「引き継ぐ」が承認済みの既定範囲のため、タグの有無によらず対象にする
+        if (store !== "observations" && !rec.handoff) continue;
+        if (carriedIds.has(rec.id)) continue;
+        if (store === "careNotes" && rec.active === false) continue;
+        if (store === "guidanceRecords" && openCases && !openCases.has(rec.caseId)) continue;
+        const { plain, body } = splitBody(store, rec);
+        plain.id = uuid(); plain.studentId = newSid; plain.yearId = to;
+        if (store === "guidanceRecords"){
+          if (!M.cases[rec.caseId]) M.cases[rec.caseId] = uuid();
+          plain.caseId = M.cases[rec.caseId];
+        }
+        body.carriedFrom = { yearId: from, recordId: rec.id };
+        await putEnc(store, plain, body);
+        report.handoff[store]++; bump();
+      }
+    }
+    await saveMig();
+  }
+
+  // 5. 未完了ToDoの移行（出所リンクは旧年度を指すため、件名をメモへ写して切れないようにする）
+  if (plan.carryTodos){
+    const fromTodos = await decAll(await getTodosByYear(from));
+    const targets = plan.carryTodos === "all"
+      ? fromTodos.filter(t => !t.done)
+      : fromTodos.filter(t => (plan.carryTodos || []).includes(t.id));
+    const existingTo = await decAll(await getTodosByYear(to));
+    for (const t of targets){
+      if (existingTo.some(e => e.carriedFromTodoId === t.id)) continue;
+      let memo = t.memo || "";
+      if (t.originType === "workRecord" && t.originId){
+        const wr = await dbGet("workRecords", t.originId);
+        const wrM = wr ? await decryptMerge(wr) : null;
+        if (wrM) memo = (memo ? memo + "\n" : "") + `（${from}年度の記録「${wrM.title || "（件名なし）"}」から引き継ぎ）`;
+      }
+      await putL1("todos", { id: uuid(), yearId: to, dueDate: t.dueDate, priority: t.priority,
+        done: false, originType: "", originId: "", title: t.title, memo, carriedFromTodoId: t.id });
+      report.todos++; bump();
+    }
+  }
+
+  // 6. 毎年の行事の複製（任意。日付を1年ずらした仮置き＋要確認の印）
+  if (plan.copyEvents){
+    const fromEvents = await decAll(await getEventsByYear(from));
+    const existingEv = await getEventsByYear(to);
+    for (const ev of fromEvents){
+      if (ev.category === "daynote") continue;
+      if (existingEv.some(e => e.carriedFromEventId === ev.id)) continue;
+      const nev = Object.assign({}, ev, { id: uuid(), yearId: to,
+        startDate: addMonths(ev.startDate, 12), endDate: addMonths(ev.endDate, 12),
+        needsReview: true, carriedFromEventId: ev.id });
+      await putL1("events", nev);
+      report.events++; bump();
+    }
+  }
+
+  // 7. 完了処理
+  const y2 = await dbGet("years", to);
+  if (y2){ y2.setupState = "ready"; await dbPut("years", y2); }
+  mig.report = report;
+  mig.completedAt = new Date().toISOString();
+  await saveMig();
+  if (plan.archiveOld) await archiveYear(from);
+  state.years = (await dbGetAll("years")).sort((a,b)=>a.id-b.id);
+  await refreshArchivedGuard();
+  return report;
+}
+
+// --- 鍵の張り替え（PIN／パスフレーズの変更。§7.3） ---
+async function changeSecret(currentSecret, newSecret){
+  if (!(await verifySecret(currentSecret))) throw new Error("現在のPIN／パスフレーズが違います");
+  const ns = String(newSecret == null ? "" : newSecret);
+  const isPin = /^\d{4,6}$/.test(ns);
+  const isPhrase = validatePassphrase(ns).ok;
+  if (!isPin && !isPhrase) throw new Error("新しいロックは、PIN（4〜6桁の数字）か、8文字以上のパスフレーズにしてください");
+  const oldKey = state.key;
+  // まず全暗号化レコードを旧鍵で復号できることを確かめる（meta は最後まで差し替えない）
+  const jobs = [];
+  for (const store of ENC_STORES){
+    for (const rec of await dbGetAll(store)){
+      if (!rec.enc) continue;
+      const merged = await decryptMerge(rec);
+      if (merged.decryptError) throw new Error("復号できない記録があるため、ロックの変更を中止しました");
+      jobs.push({ store, merged, level: rec.level });
+    }
+  }
+  const salt = b64encode(crypto.getRandomValues(new Uint8Array(16)).buffer);
+  const iterations = 600000;
+  const newKey = await deriveKey(ns, salt, iterations);
+  const keyCheck = await makeKeyCheck(newKey);
+  state.key = newKey;
+  const doneJobs = [];
+  try {
+    for (const job of jobs){
+      const { plain, body } = splitBody(job.store, job.merged);
+      if (job.level != null) plain.level = job.level;
+      await putEnc(job.store, plain, body);
+      doneJobs.push(job);
+    }
+  } catch(e){
+    state.key = oldKey;
+    for (const job of doneJobs){
+      const { plain, body } = splitBody(job.store, job.merged);
+      if (job.level != null) plain.level = job.level;
+      try { await putEnc(job.store, plain, body); } catch(_){ }
+    }
+    throw new Error("ロックの変更に失敗したため、元の状態に戻しました");
+  }
+  const rec = { key: "security", salt, iterations, keyCheck, failCount: 0, waitUntil: 0,
+    type: isPin ? "pin" : "passphrase" };
+  await dbPut("meta", rec);
+  state.security = rec;
+  await logTransfer("keyChange", [], { records: jobs.length }, isPin ? "PIN" : "パスフレーズ");
+  return true;
+}
+
+// --- 生徒の異動（クラス替え・転出・復帰。記録は生徒IDに紐づくため、そのまま付いていく） ---
+async function transferStudent(studentId, fromGroupId, toGroupId, dateStr){
+  const date = dateStr || todayString();
+  const old = await dbGet("memberships", [fromGroupId, studentId]);
+  if (old){ old.leftOn = date; await dbPut("memberships", old); }
+  const targetMembers = await getMembershipsByGroup(toGroupId);
+  const maxNo = targetMembers.reduce((a,m)=>Math.max(a, Number(m.no) || 0), 0);
+  const nm = { groupId: toGroupId, studentId, no: maxNo + 1, yearId: state.currentYearId, joinedOn: date };
+  await dbPut("memberships", nm);
+  await reloadMemberships();
+  return nm;
+}
+async function markStudentLeft(studentId, dateStr){
+  const date = dateStr || todayString();
+  const st = studentById(studentId) || await getEnc("students", studentId);
+  if (!st) throw new Error("生徒が見つかりません");
+  await saveStudentBody(st, { status: "left", statusDate: date });
+  for (const m of await getMembershipsByStudent(studentId)){
+    if (!m.leftOn){ m.leftOn = date; await dbPut("memberships", m); }
+  }
+  await reloadMemberships(); await reloadStudents();
+  return true;
+}
+async function markStudentActive(studentId){
+  const st = studentById(studentId) || await getEnc("students", studentId);
+  if (!st) throw new Error("生徒が見つかりません");
+  await saveStudentBody(st, { status: "active", statusDate: "" });
+  for (const m of await getMembershipsByStudent(studentId)){
+    if (m.leftOn){ delete m.leftOn; await dbPut("memberships", m); }
+  }
+  await reloadMemberships(); await reloadStudents();
+  return true;
+}
+window.__KYOMU__.phase4 = {
+  exportBackup, importBackup, parseBackup, runMigration, getMigrationState,
+  countsForYear, shredYear, archiveYear, unarchiveYear,
+  completeEncryptionMigration, encryptionStatus, changeSecret, verifySecret,
+  transferStudent, markStudentLeft, markStudentActive,
+  saveLesson,
+  getLessonMerged: async (date, period)=>{
+    const raw = await dbGet("lessons", lessonKey(date, period));
+    return raw ? decryptMerge(raw) : null;
+  },
+  logTransfer, refreshArchivedGuard, putL1, splitBody,
+};
+
 // ===== 第3期：Level 3 セッション（再認証・設計 §5.1）=====
 // セッションはメモリ上（state.l3）にだけ持つ。ストレージには書かない。
 function l3IdleMinutes(){ const v = Number(settings().l3IdleMin); return v>=1 && v<=30 ? v : L3_IDLE_DEFAULT_MIN; }
@@ -1599,8 +2431,8 @@ function ensureL3(){
       <h3 class="sect" style="margin-top:0">🔒 Level 3 の記録を開きます</h3>
       <p>面談・保護者連絡・配慮事項・生徒指導の記録は最重要区分（Level 3）です。開くには PIN の再入力が必要です。</p>
       <p class="muted">再入力後は、画面を離れる・しばらく操作しない・プライバシーモードを入れる・全体がロックされる、のいずれかで自動的に閉じます。</p>
-      <label class="f">PIN（4〜6桁）</label>
-      <input class="t" id="l3Pin" type="password" inputmode="numeric" maxlength="6" style="font-size:24px;max-width:220px">
+      <label class="f">${secretIsPassphrase() ? "パスフレーズ" : "PIN（4〜6桁）"}</label>
+      <input class="t" id="l3Pin" type="password" ${secretIsPassphrase() ? "" : 'inputmode="numeric" maxlength="6"'} style="font-size:24px;max-width:320px">
       <div class="lockmsg" id="l3PinMsg"></div>
       <div class="rowflex" style="margin-top:12px">
         <button class="btn gold" id="l3PinOk">照合して開く</button>
@@ -1608,9 +2440,8 @@ function ensureL3(){
     document.getElementById("l3PinCancel").onclick = ()=>{ closeSheet(); resolve(false); };
     document.getElementById("l3PinOk").onclick = async ()=>{
       const pin = document.getElementById("l3Pin").value;
-      if (!isValidPin(pin)){ document.getElementById("l3PinMsg").textContent = "PINは4〜6桁の数字です。"; return; }
-      const key = await deriveKey(pin, sec.salt, sec.iterations);
-      const ok = await verifyKeyCheck(key, sec.keyCheck);
+      if (!secretIsPassphrase() && !isValidPin(pin)){ document.getElementById("l3PinMsg").textContent = "PINは4〜6桁の数字です。"; return; }
+      const ok = await verifySecret(pin);
       if (ok){
         sec.failCount = 0; sec.waitUntil = 0; await dbPut("meta", sec);
         state.l3 = { active: true, lastActive: Date.now() };
@@ -1676,7 +2507,7 @@ async function createSecurity(pin){
   const iterations = 600000;
   const key = await deriveKey(pin, salt, iterations);
   const keyCheck = await makeKeyCheck(key);
-  const rec = { key:"security", salt, iterations, keyCheck, failCount:0, waitUntil:0 };
+  const rec = { key:"security", salt, iterations, keyCheck, failCount:0, waitUntil:0, type:"pin" };
   await dbPut("meta", rec);
   return { key, rec };
 }
@@ -1694,6 +2525,27 @@ function showLock(msg){
   ls.classList.remove("hidden");
   pinBuffer = ""; renderPinDots();
   document.getElementById("lockMsg").textContent = msg || "";
+  // 第4期：パスフレーズ方式に切り替えた場合は入力欄を表示し、PINパッドを隠す
+  const phrase = secretIsPassphrase();
+  const pad = document.getElementById("pinPad");
+  if (pad) pad.style.display = phrase ? "none" : "";
+  const dots = document.getElementById("pinDots");
+  if (dots) dots.style.display = phrase ? "none" : "";
+  const ub = document.getElementById("unlockBtn");
+  if (ub) ub.style.display = phrase ? "none" : "";
+  const row = document.getElementById("passphraseRow");
+  if (row){
+    row.classList.toggle("hidden", !phrase);
+    const inp = document.getElementById("passphraseInput");
+    if (inp) inp.value = "";
+    const btn = document.getElementById("passphraseUnlockBtn");
+    if (btn) btn.onclick = ()=>tryUnlock();
+    if (inp) inp.onkeydown = (e)=>{ if (e.key === "Enter") tryUnlock(); };
+  }
+  const guide = document.getElementById("lockGuide");
+  if (guide) guide.textContent = phrase
+    ? "パスフレーズを入力してください。連続で誤ると少しの間お待ちいただきます。"
+    : "PINは数字キーでも押せます。4〜6桁入力したら「開く」を押してください。";
   checkPinWait();
 }
 function renderPinDots(){
@@ -1711,10 +2563,14 @@ function checkPinWait(){
 }
 async function tryUnlock(){
   if (checkPinWait() > 0) return;
-  if (!isValidPin(pinBuffer)){ document.getElementById("lockMsg").textContent = "PINは4〜6桁の数字です。"; return; }
+  const phrase = secretIsPassphrase();
+  const secret = phrase ? (document.getElementById("passphraseInput") || {}).value || "" : pinBuffer;
+  if (!phrase && !isValidPin(pinBuffer)){ document.getElementById("lockMsg").textContent = "PINは4〜6桁の数字です。"; return; }
+  if (phrase && !secret){ document.getElementById("lockMsg").textContent = "パスフレーズを入力してください。"; return; }
   const sec = state.security;
-  const key = await deriveKey(pinBuffer, sec.salt, sec.iterations);
+  const key = await deriveKey(String(secret), sec.salt, sec.iterations);
   const ok = await verifyKeyCheck(key, sec.keyCheck);
+  const word = phrase ? "パスフレーズ" : "PIN";
   if (ok){
     sec.failCount = 0; sec.waitUntil = 0; await dbPut("meta", sec);
     state.key = key; state.unlocked = true; pinBuffer = "";
@@ -1727,8 +2583,8 @@ async function tryUnlock(){
     await dbPut("meta", sec);
     pinBuffer = ""; renderPinDots();
     document.getElementById("lockMsg").textContent = wait > 0
-      ? `PINが違います。${wait}秒の待機時間が発生しました。`
-      : "PINが違います。もう一度入力してください。";
+      ? `${word}が違います。${wait}秒の待機時間が発生しました。`
+      : `${word}が違います。もう一度入力してください。`;
   }
 }
 function lockApp(msg){ showLock(msg || "ロックしました。"); }
@@ -1776,6 +2632,7 @@ document.addEventListener("visibilitychange", ()=>{
   document.getElementById("unlockBtn").addEventListener("click", tryUnlock);
   document.addEventListener("keydown", (e)=>{
     if (document.getElementById("lockScreen").classList.contains("hidden")) return;
+    if (secretIsPassphrase()) return; // パスフレーズ方式では入力欄側で処理する
     if (/^\d$/.test(e.key) && pinBuffer.length < 6){ pinBuffer += e.key; renderPinDots(); }
     if (e.key === "Backspace"){ pinBuffer = pinBuffer.slice(0,-1); renderPinDots(); }
     if (e.key === "Enter") tryUnlock();
@@ -1788,7 +2645,7 @@ async function loadYearData(){
   state.terms = (await getTermsByYear(state.currentYearId)).sort((a,b)=>a.startDate<b.startDate?-1:1);
   state.courses = await getCoursesByYear(state.currentYearId);
   state.baseSlots = await getBaseSlotsByYear(state.currentYearId);
-  state.eventsCache = await getEventsByYear(state.currentYearId);
+  state.eventsCache = await decAll(await getEventsByYear(state.currentYearId)); // 第4期：メモ本文は暗号化保存
   // 第2期：名簿グループ・生徒（復号してキャッシュ）・所属
   state.groups = await getGroupsByYear(state.currentYearId);
   const rawStudents = await getStudentsByYear(state.currentYearId);
@@ -2099,11 +2956,20 @@ async function deleteSampleData(){
 window.__KYOMU__.sample = { insertSampleData, deleteSampleData, sampleYearExists, SAMPLE_YEAR_ID };
 
 function studentById(id){ return state.students.find(x=>x.id===id) || null; }
-function groupMembers(groupId){
+function groupMembers(groupId, onDate){
+  const today = todayString();
   return state.memberships.filter(m=>m.groupId===groupId)
+    .filter(m=> onDate ? membershipActiveOn(m, onDate) : (!m.leftOn || m.leftOn > today))
     .slice().sort((a,b)=>(a.no||0)-(b.no||0))
     .map(m=>({ membership: m, student: studentById(m.studentId) }))
-    .filter(x=>x.student);
+    .filter(x=>x.student)
+    .filter(x=>{
+      // 転出した生徒は現在の名簿・集計から外す（記録自体は生徒に紐づいて残る）。
+      // 日付を指定した場合は、その日時点でまだ在籍していた生徒を含める。
+      if (!isStudentLeft(x.student)) return true;
+      if (onDate) return x.student.statusDate ? x.student.statusDate > onDate : false;
+      return false;
+    });
 }
 function displayNameOf(student, groupId){
   if (!student) return "（名称なし）";
@@ -2120,6 +2986,8 @@ function courseGroup(course){
 }
 function mask2(s){ return maskText(s, 2, state.privacyOn); }
 async function enterApp(){
+  const viewAtStart = state.view;
+  await refreshArchivedGuard(); // 第4期：アーカイブ年度の書き込みガードを有効化
   document.getElementById("appHeader").classList.remove("hidden");
   document.getElementById("viewRoot").classList.remove("hidden");
   state.years = (await dbGetAll("years")).sort((a,b)=>a.id-b.id);
@@ -2131,7 +2999,8 @@ async function enterApp(){
     ? saved.currentYearId : state.years[state.years.length-1].id;
   await loadYearData();
   if (!state.monthCursor) state.monthCursor = todayString().slice(0,7);
-  state.view = "home"; // ロック解除後はホーム（業務エリア・ランチャー）を最初に開く（§8.5）
+  // ロック解除後はホームを最初に開く（§8.5）。ただし読み込み中に利用者が既に画面遷移していたら、その遷移を尊重する
+  if (state.view === viewAtStart) state.view = "home";
   touchActivity();
   render();
 }
@@ -2160,10 +3029,13 @@ function render(){
   state._renderedView = state.view;
   document.querySelectorAll("[data-nav]").forEach(b=>b.classList.toggle("on", b.dataset.nav===state.view));
   const y = currentYear();
-  document.getElementById("headerYear").textContent = y ? `${y.id}年度` : "";
+  document.getElementById("headerYear").textContent = y ? `${y.id}年度${y.archived?"（アーカイブ）":""}` : "";
   const sb = document.getElementById("sampleBanner");
   if (sb) sb.classList.toggle("hidden", !isSampleYear());
+  const ab = document.getElementById("archiveBanner");
+  if (ab) ab.classList.toggle("hidden", !isArchivedYear());
   const root = document.getElementById("viewRoot");
+  root.classList.toggle("archived-ro", isArchivedYear());
   if (state.view==="home") renderHome(root);
   else if (state.view==="today") renderToday(root);
   else if (state.view==="week") renderWeek(root);
@@ -2172,6 +3044,7 @@ function render(){
   else if (state.view==="month") renderMonth(root);
   else if (state.view==="year") renderYear(root);
   else if (state.view==="settings") renderSettings(root);
+  else if (state.view==="migration") renderMigration(root);
   else if (state.view==="day") renderDay(root);
   else if (state.view==="lesson") renderLesson(root);
   else if (state.view==="roster") renderRoster(root);
@@ -2194,7 +3067,7 @@ function render(){
 async function renderWeek(root){
   const monday = state.weekMonday;
   const dates = weekDates(monday);
-  const lessons = await getLessonsInRange(dates[0], dates[5]);
+  const lessons = await decAll(await getLessonsInRange(dates[0], dates[5]));
   state.lessonsCache = lessons;
   const frame = buildWeekFrame(state.baseSlots, lessons, monday, state.courses);
   const today = todayString();
@@ -2244,6 +3117,14 @@ function categoryLabelForKind(kind){
 
 // ===== コマシート（§8.2）=====
 function openSheet(html){
+  // アーカイブ年度の表示中は、シート内の入力欄も読み取り専用にする（データ層のガードと二重化）
+  setTimeout(()=>{
+    if (!isArchivedYear()) return;
+    const bd = document.getElementById("sheetBackdrop");
+    if (!bd) return;
+    if (bd.querySelector('input[type="password"]')) return; // PIN再入力などの操作シートは対象外
+    bd.querySelectorAll("input, textarea, select").forEach(el=>{ el.disabled = true; });
+  }, 0);
   const bd = document.getElementById("sheetBackdrop");
   document.getElementById("sheetBox").innerHTML = html;
   bd.classList.remove("hidden");
@@ -2256,6 +3137,7 @@ document.getElementById("sheetBackdrop").addEventListener("click", (e)=>{
 async function getOrDraftLesson(date, period){
   const id = lessonKey(date, period);
   let lesson = await dbGet("lessons", id);
+  if (lesson) lesson = await decryptMerge(lesson); // 第4期：本文は暗号化保存（旧形式の平文もそのまま読める）
   if (!lesson){
     const dow = dayOfWeek(date);
     const base = state.baseSlots.find(b=>b.dayOfWeek===dow && b.period===period);
@@ -2275,7 +3157,8 @@ async function saveLesson(lesson){
   lesson.hasRecord = computeHasRecord(lesson);
   lesson.updatedAt = new Date().toISOString();
   lesson.level = 1;
-  await dbPut("lessons", lesson);
+  const saved = await putL1("lessons", lesson); // 第4期：本文は暗号化して保存する
+  lesson.updatedAt = saved.updatedAt;
   return lesson;
 }
 
@@ -2417,7 +3300,7 @@ async function renderLesson(root){
 
 // ===== 日のコマ一覧ヘルパー（今日／日エリア共通）=====
 async function buildDayCells(date){
-  const lessons = await getLessonsInRange(date, date);
+  const lessons = await decAll(await getLessonsInRange(date, date));
   const lmap = new Map(lessons.map(l=>[l.period, l]));
   const dow = dayOfWeek(date);
   return PERIODS.map(p=>{
@@ -2446,7 +3329,7 @@ async function renderHome(root){
   const nextCell = cells.find(c=>c.period>=nowP && (c.base || c.lesson)) || cells.find(c=>c.base || c.lesson) || null;
   const evs = eventsOnDate(state.eventsCache, today).filter(isRealEvent);
   const dn = dayNoteOf(today);
-  const dueTodos = todosDueList(await getTodosByYear(state.currentYearId), today);
+  const dueTodos = isArchivedYear() ? [] : todosDueList(await decAll(await getTodosByYear(state.currentYearId)), today);
   const markerCount = (await getReviewMarkersByYear(state.currentYearId)).length;
   const hasSample = await sampleYearExists();
   const areaBtns = AREAS.filter(a=>a.enabled && a.showOnHome && !(state.privacyOn && a.level3)).map(a=>
@@ -2520,7 +3403,7 @@ async function renderToday(root){
   const nowP = currentPeriodCode();
   const evs = eventsOnDate(state.eventsCache, today).filter(isRealEvent);
   const dn = dayNoteOf(today);
-  const dueTodos = todosDueList(await getTodosByYear(state.currentYearId), today);
+  const dueTodos = isArchivedYear() ? [] : todosDueList(await decAll(await getTodosByYear(state.currentYearId)), today);
   root.innerHTML = `
     <div class="rowflex"><button class="btn small ghost" id="tHome">🏠 ホーム</button>
     <button class="btn small ghost" id="tDay">📝 今日の日エリア</button>
@@ -2581,7 +3464,7 @@ async function renderCourses(root){
 async function renderCourse(root){
   const course = state.courses.find(c=>c.id===state.selectedCourseId);
   if (!course){ state.view="courses"; renderCourses(root); return; }
-  const lessons = (await dbGetByIndex("lessons", "byCourse", course.id))
+  const lessons = (await decAll(await dbGetByIndex("lessons", "byCourse", course.id)))
     .slice().sort((a,b)=> a.date!==b.date ? (a.date<b.date?-1:1) : a.period-b.period);
   root.innerHTML = `
     <div class="rowflex"><button class="btn small ghost" id="coBack">◀ 講座一覧</button>
@@ -2691,7 +3574,7 @@ async function renderDay(root){
     }
     if (!rec){ rec = { id: uuid(), yearId: state.currentYearId, category:"daynote", startDate: date, endDate: date, level:1 }; state.eventsCache.push(rec); }
     rec.title = title; rec.memo = memo; rec.yearId = state.currentYearId;
-    await dbPut("events", rec);
+    await putL1("events", rec);
     const el = document.getElementById("dnSaved"); if (el) el.textContent = "保存済み " + new Date().toLocaleTimeString("ja-JP");
   };
   ["dnTitle","dnMemo"].forEach(id=>{ const el=document.getElementById(id); if (el) el.addEventListener("input", saveDn); });
@@ -2704,6 +3587,7 @@ function openEventSheet(ev, defaultDate, preset){
   if (isNew && preset){ if (preset.category) ev.category = preset.category; if (preset.groupId) ev.groupId = preset.groupId; }
   openSheet(`
     <h3 class="sect" style="margin-top:0">${isNew?"行事を追加":"行事を編集"}</h3>
+    ${ev.needsReview ? `<div class="warnbox"><strong>要確認：</strong>この行事は年度移行で複製した仮置きです。日付を確認して保存すると、この印は外れます。</div>` : ""}
     <label class="f">タイトル</label><input class="t" id="evTitle" value="${esc(ev.title)}">
     <div class="rowflex"><div style="flex:1"><label class="f">開始日</label><input class="t" type="date" id="evStart" value="${esc(ev.startDate)}"></div>
     <div style="flex:1"><label class="f">終了日</label><input class="t" type="date" id="evEnd" value="${esc(ev.endDate)}"></div></div>
@@ -2724,7 +3608,8 @@ function openEventSheet(ev, defaultDate, preset){
     ev.memo = document.getElementById("evMemo").value;
     ev.yearId = state.currentYearId; ev.level = 1;
     if (ev.groupId === undefined) delete ev.groupId;
-    await dbPut("events", ev);
+    if (ev.needsReview) delete ev.needsReview;
+    await putL1("events", ev);
     const i = state.eventsCache.findIndex(e=>e.id===ev.id);
     if (i>=0) state.eventsCache[i]=ev; else state.eventsCache.push(ev);
     closeSheet(); toast("行事を保存しました"); render();
@@ -2739,7 +3624,7 @@ async function renderMonth(root){
   const [cy, cm] = state.monthCursor.split("-").map(Number);
   const first = formatDate(cy, cm, 1);
   const last = formatDate(cy, cm, daysInMonth(cy, cm));
-  const lessons = await getLessonsInRange(first, last);
+  const lessons = await decAll(await getLessonsInRange(first, last));
   const recDates = new Set(lessons.filter(l=>computeHasRecord(l)).map(l=>l.date));
   const gridStart = addDays(first, -dayOfWeek(first));
   let cellsHtml = "";
@@ -2863,9 +3748,286 @@ function bindSlotEditor(root, prefix, rerender){
 }
 
 // ===== 設定画面 =====
+// ===== 年度移行ウィザード（第4期・全画面ステップ形式）=====
+const MIG_STEP_NAMES = ["はじめに", "新年度の基本", "型の複製", "生徒の持ち上がり", "申し送り", "ToDoの引き継ぎ", "確認と実行", "結果"];
+function migState(){
+  if (!state.mig){
+    // 移行元はサンプル年度も選べる（お試しデータでもウィザードの流れを試せるように）
+    const from = state.years.map(y=>y.id);
+    state.mig = { step: 0, fromYearId: state.currentYearId && from.includes(state.currentYearId) ? state.currentYearId : (from[from.length-1] || null),
+      toYearId: null, termSystem: "3", copyCourses: true, copyEvents: false, copyDuties: true,
+      groups: null, handoffKinds: { careNotes: true, guidanceRecords: true, careerRecords: true, observations: true, interviews: false, contacts: false },
+      carryTodos: true, archiveOld: false, running: false, report: null, fromGroups: [] };
+  }
+  return state.mig;
+}
+async function renderMigration(root){
+  const m = migState();
+  const stepBar = MIG_STEP_NAMES.map((n,i)=>`<span class="chip" style="${i===m.step?"background:var(--gold);color:#231a05;font-weight:700":""}">${i+1}. ${n}</span>`).join(" ");
+  let body = "";
+  const nav = (back, next, nextLabel)=>`<div class="rowflex" style="margin-top:16px">
+    ${back ? `<button class="btn ghost" id="migBack">◀ 戻る</button>` : `<button class="btn ghost" id="migHome">🏠 ホームへ</button>`}
+    ${next ? `<button class="btn gold" id="migNext">${nextLabel || "次へ ▶"}</button>` : ""}</div>`;
+  if (m.step === 0){
+    const migYears = state.years.filter(y=>y.setupState === "migrating");
+    body = `<h3 class="sect" style="margin-top:0">年度移行ウィザード</h3>
+      <p>新しい年度へ、講座・時間割などの「型」と、持ち上がる生徒・申し送りを引き継ぎます。途中で閉じても、続きから再開できます。</p>
+      ${migYears.length ? `<div class="warnbox">移行の途中になっている年度があります：${migYears.map(y=>`${y.id}年度`).join("、")}。下の「次へ」から進めると、その移行を再開できます。</div>` : ""}
+      <div class="warnbox"><strong>先におすすめ：</strong>移行の前に、設定画面の「暗号化バックアップ（受け渡し）」で、今の年度のバックアップを書き出しておいてください。何かあっても戻れる状態で進めるためです。</div>
+      <p class="muted">このウィザードで引き継ぐのは「同じ先生が次の年度も使う」場合のものです。別の先生へ生徒の記録を引き渡す用途には使わないでください（学校の正式な引き継ぎの手続きを使ってください）。</p>`
+      + nav(false, true);
+  } else if (m.step === 1){
+    const candidates = state.years;
+    body = `<h3 class="sect" style="margin-top:0">新年度の基本</h3>
+      <label class="f">移行元の年度</label>
+      <select class="t" id="migFrom" style="max-width:220px">${candidates.map(y=>`<option value="${y.id}" ${Number(m.fromYearId)===y.id?"selected":""}>${y.id}年度${y.sample||y.id===9999?"（サンプル）":""}</option>`).join("")}</select>
+      <label class="f">新しい年度（西暦）</label>
+      <input class="t" id="migTo" type="number" style="max-width:160px" value="${m.toYearId || (Number(m.fromYearId||academicYearOf(todayString())) + 1)}">
+      <label class="f">学期制</label>
+      <select class="t" id="migTerm" style="max-width:200px"><option value="3" ${m.termSystem==="3"?"selected":""}>3学期制</option><option value="2" ${m.termSystem==="2"?"selected":""}>2期制</option></select>
+      <p class="muted">新しい年度は、このウィザードで作成します。既にある年度は選べません。</p>`
+      + nav(true, true);
+  } else if (m.step === 2){
+    body = `<h3 class="sect" style="margin-top:0">型の複製</h3>
+      <p class="muted">講座・基本時間割・単元・観点設定・分掌の「型」を新しい年度へ複製します。複製した型は、新年度の設定画面で直せます。座席表は複製しません（新しいクラスで作り直してください）。</p>
+      <label class="f"><input type="checkbox" id="migCourses" ${m.copyCourses?"checked":""} style="width:22px;height:22px;vertical-align:middle"> 講座・基本時間割・単元・観点設定を複製する</label>
+      <label class="f"><input type="checkbox" id="migDuties" ${m.copyDuties?"checked":""} style="width:22px;height:22px;vertical-align:middle"> 分掌（校務分掌の枠）を複製する</label>
+      <label class="f"><input type="checkbox" id="migEvents" ${m.copyEvents?"checked":""} style="width:22px;height:22px;vertical-align:middle"> 毎年の行事も複製する（日付を1年ずらした仮置きになり、あとで「要確認」の印を外して使います）</label>`
+      + nav(true, true);
+  } else if (m.step === 3){
+    if (!m.fromGroups || m.groupsFrom !== Number(m.fromYearId)){
+      m.fromGroups = await getGroupsByYear(Number(m.fromYearId));
+      m.groupsFrom = Number(m.fromYearId);
+      m.groups = m.fromGroups.map(g=>({ fromGroupId: g.id, toName: g.name, carry: true }));
+    }
+    body = `<h3 class="sect" style="margin-top:0">生徒の持ち上がり</h3>
+      <p class="muted">持ち上がるグループを選んでください。生徒は新しい年度では新しいIDで複製され、記録の付け替えはアプリが行います。先生が確認するのは、この氏名・クラスの一覧だけです。クラス替えの調整は、新年度の名簿画面で行えます。</p>
+      ${m.fromGroups.map((g,i)=>`<div class="listitem"><label style="font-size:16px"><input type="checkbox" data-mig-group="${i}" ${m.groups[i] && m.groups[i].carry?"checked":""} style="width:20px;height:20px;vertical-align:middle"> ${esc(g.name)}（${g.kind==="club"?"部活動":"学級・講座"}）</label>
+        <div style="margin-top:4px">新年度の名前：<input class="t" data-mig-group-name="${i}" value="${esc(m.groups[i] ? m.groups[i].toName : g.name)}" style="max-width:260px"></div></div>`).join("") || `<p class="muted">移行元にグループがありません。</p>`}`
+      + nav(true, true);
+  } else if (m.step === 4){
+    const hk = m.handoffKinds;
+    const row = (key, label, locked)=>`<label class="f"><input type="checkbox" data-mig-hk="${key}" ${hk[key]?"checked":""} ${locked?"disabled":""} style="width:22px;height:22px;vertical-align:middle"> ${label}</label>`;
+    body = `<h3 class="sect" style="margin-top:0">申し送りの引き継ぎ</h3>
+      <p class="muted">生徒カルテ・所見メモのうち、引き継ぐ範囲を選びます。カルテの記録は「申し送り（handoff）」の印が付いたものだけが対象です。引き継いだ記録には出所（元の年度と記録）が残ります。元の年度の記録はそのまま残ります。</p>
+      ${row("careNotes", "配慮事項（有効なもの）")}
+      ${row("guidanceRecords", "生徒指導の記録（対応中・経過観察中の案件）")}
+      ${row("careerRecords", "進路の記録")}
+      ${row("observations", "所見メモ")}
+      ${row("interviews", "面談の記録（既定は引き継ぎません）")}
+      ${row("contacts", "保護者連絡（既定は引き継ぎません）")}`
+      + nav(true, true);
+  } else if (m.step === 5){
+    body = `<h3 class="sect" style="margin-top:0">ToDoの引き継ぎ</h3>
+      <label class="f"><input type="checkbox" id="migTodos" ${m.carryTodos?"checked":""} style="width:22px;height:22px;vertical-align:middle"> 未完了の ToDo を新しい年度へ引き継ぐ</label>
+      <p class="muted">会議メモなどへの出所リンクは、新しい年度では辿れなくなるため、件名をメモに写して引き継ぎます。</p>
+      <label class="f"><input type="checkbox" id="migArchiveOld" ${m.archiveOld?"checked":""} style="width:22px;height:22px;vertical-align:middle"> 移行が終わったら、元の年度をアーカイブする（閲覧のみにする）</label>`
+      + nav(true, true);
+  } else if (m.step === 6){
+    body = `<h3 class="sect" style="margin-top:0">確認と実行</h3>
+      <p>${m.fromYearId}年度 → <strong>${m.toYearId}年度</strong> へ移行します。</p>
+      <p class="muted">型の複製：${m.copyCourses?"する":"しない"}／分掌：${m.copyDuties?"する":"しない"}／行事：${m.copyEvents?"する":"しない"}<br>
+      持ち上がり：${(m.groups||[]).filter(g=>g.carry).length} グループ／申し送り：${Object.entries(m.handoffKinds).filter(([,v])=>v).length} 区分／ToDo：${m.carryTodos?"引き継ぐ":"引き継がない"}／元の年度のアーカイブ：${m.archiveOld?"する":"しない"}</p>
+      <div id="migProgress" class="muted"></div>
+      <div class="rowflex" style="margin-top:16px">
+        <button class="btn ghost" id="migBack">◀ 戻る</button>
+        <button class="btn gold" id="migRun" ${m.running?"disabled":""}>この内容で移行を実行する</button></div>`;
+  } else if (m.step === 7){
+    const r = m.report || {};
+    const h = r.handoff || {};
+    body = `<h3 class="sect" style="margin-top:0">移行が終わりました</h3>
+      <p><strong>${m.toYearId}年度</strong>ができました。引き継いだ件数：</p>
+      <p>講座 ${r.courses||0} 件／基本時間割 ${r.baseSlots||0} 件／単元 ${r.units||0} 件／観点設定 ${r.gradeSettings||0} 件／分掌 ${r.duties||0} 件／行事 ${r.events||0} 件<br>
+      グループ ${r.groups||0} 件／生徒 ${r.students||0} 名／未完了ToDo ${r.todos||0} 件<br>
+      申し送り：配慮事項 ${h.careNotes||0} 件／指導記録 ${h.guidanceRecords||0} 件／進路 ${h.careerRecords||0} 件／所見メモ ${h.observations||0} 件／面談 ${h.interviews||0} 件／保護者連絡 ${h.contacts||0} 件</p>
+      ${r.events ? `<div class="warnbox">複製した行事は日付が仮置きです。月間・年間画面で日付を確認し、保存すると「要確認」の印が外れます。</div>` : ""}
+      <p class="muted">元の年度（${m.fromYearId}年度）の記録はそのまま残っています${m.archiveOld?"（アーカイブ済みです）":""}。新しい年度は、画面上部の年度切替や設定画面から開けます。</p>
+      <div class="rowflex" style="margin-top:16px">
+        <button class="btn gold" id="migToYear">${m.toYearId}年度を開く</button>
+        <button class="btn ghost" id="migHome2">🏠 ホームへ</button></div>`;
+  }
+  root.innerHTML = `
+    <div class="rowflex"><button class="btn small ghost" id="migHomeTop">🏠 ホーム</button>
+    <button class="btn small ghost" id="migHelp">？ ヘルプ</button></div>
+    <h2 class="viewtitle">年度移行ウィザード ― ${esc(currentYear() ? currentYear().id + "年度から" : "")}</h2>
+    <p style="line-height:2">${stepBar}</p>
+    <div class="card">${body}</div>`;
+  document.getElementById("migHomeTop").onclick = ()=>{ state.view="home"; render(); };
+  document.getElementById("migHelp").onclick = ()=>openHelp("migration");
+  const back = document.getElementById("migBack");
+  if (back) back.onclick = ()=>{ m.step = Math.max(0, m.step - 1); render(); };
+  const home = document.getElementById("migHome");
+  if (home) home.onclick = ()=>{ state.view="home"; render(); };
+  const next = document.getElementById("migNext");
+  if (next) next.onclick = async ()=>{
+    if (m.step === 1){
+      m.fromYearId = Number(document.getElementById("migFrom").value);
+      m.toYearId = Number(document.getElementById("migTo").value);
+      m.termSystem = document.getElementById("migTerm").value;
+      if (!m.toYearId || m.toYearId === m.fromYearId){ toast("新しい年度の年を正しく入力してください"); return; }
+      if (state.years.some(y=>y.id === m.toYearId)){ toast("その年度は既にあります。別の年を入力してください"); return; }
+      m.groups = null; m.groupsFrom = null;
+    }
+    if (m.step === 2){
+      m.copyCourses = document.getElementById("migCourses").checked;
+      m.copyDuties = document.getElementById("migDuties").checked;
+      m.copyEvents = document.getElementById("migEvents").checked;
+    }
+    if (m.step === 3){
+      root.querySelectorAll("[data-mig-group]").forEach(c=>{ m.groups[Number(c.dataset.migGroup)].carry = c.checked; });
+      root.querySelectorAll("[data-mig-group-name]").forEach(inp=>{ m.groups[Number(inp.dataset.migGroupName)].toName = inp.value; });
+    }
+    if (m.step === 4){
+      root.querySelectorAll("[data-mig-hk]").forEach(c=>{ m.handoffKinds[c.dataset.migHk] = c.checked; });
+    }
+    if (m.step === 5){
+      m.carryTodos = document.getElementById("migTodos").checked;
+      m.archiveOld = document.getElementById("migArchiveOld").checked;
+    }
+    m.step = Math.min(6, m.step + 1);
+    render();
+  };
+  const run = document.getElementById("migRun");
+  if (run) run.onclick = async ()=>{
+    m.running = true; run.disabled = true;
+    const prog = document.getElementById("migProgress");
+    const plan = { fromYearId: Number(m.fromYearId), toYearId: Number(m.toYearId), termSystem: m.termSystem,
+      copyCourses: m.copyCourses, copyEvents: m.copyEvents, copyDuties: m.copyDuties,
+      groups: (m.groups || []).filter(g=>g.carry).map(g=>({ fromGroupId: g.fromGroupId, toName: g.toName })),
+      handoffKinds: m.handoffKinds, carryTodos: m.carryTodos ? "all" : null, archiveOld: m.archiveOld };
+    try {
+      const report = await runMigration(plan, (rep)=>{
+        if (prog) prog.textContent = `移行中… 生徒 ${rep.students} 名／申し送り ${Object.values(rep.handoff).reduce((a,b)=>a+b,0)} 件まで進みました`;
+      });
+      m.report = report;
+      await logTransfer("migration", [plan.fromYearId, plan.toYearId],
+        { courses: report.courses, students: report.students, todos: report.todos }, "");
+      m.step = 7;
+      toast("年度移行が終わりました");
+    } catch(e){
+      if (prog) prog.textContent = "移行の途中で止まりました：" + (e.message || e) + "。もう一度実行すると、済んだところは飛ばして続きから進みます。";
+      m.running = false; run.disabled = false;
+      return;
+    }
+    m.running = false;
+    render();
+  };
+  const toYear = document.getElementById("migToYear");
+  if (toYear) toYear.onclick = async ()=>{
+    state.currentYearId = Number(m.toYearId); saveSettings({ currentYearId: state.currentYearId });
+    await loadYearData(); state.view = "home"; render();
+  };
+  const home2 = document.getElementById("migHome2");
+  if (home2) home2.onclick = ()=>{ state.view="home"; render(); };
+}
+
+// ===== シュレッダー（年度データの完全削除・5段階確認。第4期）=====
+function openShredderSheet(){
+  state.shred = { yearId: null, step: 0, counts: null, phrase: "", secretOk: false };
+  renderShredder();
+}
+async function renderShredder(){
+  const sh = state.shred;
+  const targets = state.years.filter(y=>!y.sample && y.id !== 9999);
+  let html = "";
+  if (sh.step === 0){
+    html = `<h3 class="sect" style="margin-top:0">シュレッダー ― 年度を選ぶ</h3>
+      <p>消す年度を選んでください。選んだ年度の記録の件数を数えてから、確認に進みます。</p>
+      <label class="f">対象の年度</label>
+      <select class="t" id="shYear" style="max-width:220px">${targets.map(y=>`<option value="${y.id}" ${Number(sh.yearId)===y.id?"selected":""}>${y.id}年度${y.archived?"（アーカイブ中）":""}</option>`).join("")}</select>
+      <div id="shCounts" class="muted" style="margin-top:8px"></div>
+      <div class="rowflex" style="margin-top:12px">
+        <button class="btn gold" id="shNext0">件数を確認して次へ</button>
+        <button class="btn ghost" id="shCancel">やめる</button></div>`;
+  } else if (sh.step === 1){
+    html = `<h3 class="sect" style="margin-top:0">シュレッダー ― バックアップの確認</h3>
+      <p><strong>${sh.yearId}年度</strong>の記録は全部で <strong>${sh.counts.total} 件</strong>（うち Level 3 の記録 ${sh.counts.level3} 件、生徒 ${sh.counts.students} 名分）です。</p>
+      <div class="warnbox"><strong>消す前に、暗号化バックアップの書き出しを強くおすすめします。</strong>設定画面の「暗号化バックアップ（受け渡し）」から書き出せます。あとから必要になったときに、戻せるのはバックアップだけです。</div>
+      <label class="f"><input type="checkbox" id="shSkipBackup" style="width:22px;height:22px;vertical-align:middle"> バックアップなしで進む（または書き出し済み）</label>
+      <div class="rowflex" style="margin-top:12px">
+        <button class="btn gold" id="shNext1">次へ</button>
+        <button class="btn ghost" id="shCancel">やめる</button></div>`;
+  } else if (sh.step === 2){
+    html = `<h3 class="sect" style="margin-top:0">シュレッダー ― 本人確認</h3>
+      <p>確認のため、現在の${secretIsPassphrase() ? "パスフレーズ" : "PIN"}を入力してください。</p>
+      <label class="f">${secretIsPassphrase() ? "パスフレーズ" : "PIN"}</label>
+      <input class="t" id="shSecret" type="password" ${secretIsPassphrase() ? "" : 'inputmode="numeric" maxlength="6"'} style="font-size:22px;max-width:320px">
+      <div class="lockmsg" id="shSecretMsg"></div>
+      <div class="rowflex" style="margin-top:12px">
+        <button class="btn gold" id="shNext2">照合して次へ</button>
+        <button class="btn ghost" id="shCancel">やめる</button></div>`;
+  } else if (sh.step === 3){
+    const phrase = shredderPhrase(sh.yearId);
+    html = `<h3 class="sect" style="margin-top:0">シュレッダー ― 最終確認</h3>
+      <p><strong>${sh.yearId}年度</strong>の記録 <strong>${sh.counts.total} 件</strong>を、この端末から消します。</p>
+      <div class="warnbox"><strong>正直な但し書き：</strong><br>
+      ・この操作は取り消せません。戻せるのは、事前に書き出した暗号化バックアップだけです。<br>
+      ・端末内のデータベースからは削除されますが、端末の記憶領域から物理的に完全に消えたことまでは保証できません（端末やブラウザの仕組みによるためです）。<br>
+      ・既に書き出したバックアップファイルは、この操作では消えません。ファイル自体の管理（保管・廃棄）はご自身でお願いします。</div>
+      <label class="f">確認のため「${phrase}」と入力してください</label>
+      <input class="t" id="shPhrase" style="max-width:320px" placeholder="${phrase}">
+      <div class="savednote" id="shMsg"></div>
+      <div class="rowflex" style="margin-top:12px">
+        <button class="btn danger" id="shExec" disabled>${sh.yearId}年度のデータを完全に消去する</button>
+        <button class="btn ghost" id="shCancel">やめる</button></div>`;
+  } else if (sh.step === 4){
+    html = `<h3 class="sect" style="margin-top:0">シュレッダー ― 完了</h3>
+      <p><strong>${sh.yearId}年度</strong>の記録 ${sh.counts.total} 件を消しました。他の年度・設定・定型文には触れていません。この操作は「受け渡し・操作の履歴」に残ります。</p>
+      <div class="rowflex" style="margin-top:12px">
+        <button class="btn gold" id="shDone">閉じる</button></div>`;
+  }
+  openSheet(html);
+  const cancel = document.getElementById("shCancel");
+  if (cancel) cancel.onclick = ()=>closeSheet();
+  const done = document.getElementById("shDone");
+  if (done) done.onclick = ()=>{ closeSheet(); state.view = "settings"; render(); };
+  const updCounts = async ()=>{
+    const yid = Number(document.getElementById("shYear").value);
+    sh.yearId = yid;
+    const c = await countsForYear(yid);
+    const el = document.getElementById("shCounts");
+    if (el) el.textContent = `${yid}年度の記録：合計 ${c.total} 件（Level 3 は ${c.level3} 件、生徒 ${c.students} 名分）`;
+  };
+  const ys = document.getElementById("shYear");
+  if (ys){ ys.onchange = updCounts; updCounts(); }
+  const n0 = document.getElementById("shNext0");
+  if (n0) n0.onclick = async ()=>{
+    sh.yearId = Number(document.getElementById("shYear").value);
+    sh.counts = await countsForYear(sh.yearId);
+    sh.step = 1; renderShredder();
+  };
+  const n1 = document.getElementById("shNext1");
+  if (n1) n1.onclick = ()=>{
+    if (!document.getElementById("shSkipBackup").checked){ toast("バックアップの確認にチェックを入れてください（書き出しは設定画面からできます）"); return; }
+    sh.step = 2; renderShredder();
+  };
+  const n2 = document.getElementById("shNext2");
+  if (n2) n2.onclick = async ()=>{
+    const ok = await verifySecret(document.getElementById("shSecret").value);
+    if (!ok){ document.getElementById("shSecretMsg").textContent = "PIN／パスフレーズが違います。"; return; }
+    sh.secretOk = true; sh.step = 3; renderShredder();
+  };
+  const ph = document.getElementById("shPhrase");
+  if (ph) ph.oninput = ()=>{
+    document.getElementById("shExec").disabled = ph.value !== shredderPhrase(sh.yearId);
+  };
+  const exec = document.getElementById("shExec");
+  if (exec) exec.onclick = async ()=>{
+    exec.disabled = true;
+    document.getElementById("shMsg").textContent = "消去しています…";
+    await shredYear(sh.yearId);
+    sh.step = 4; renderShredder();
+    toast(`${sh.yearId}年度のデータを消去しました`);
+  };
+}
+
 async function renderSettings(root){
   const s = settings();
   const hasSample = await sampleYearExists();
+  const transferLogList = await getTransferLog();
+  const encStatus = await encryptionStatus();
+  const encPlainTotal = L1_STORES.reduce((a,st)=>a + encStatus[st].plain, 0);
+  const migYears = state.years.filter(y=>y.setupState === "migrating");
   root.innerHTML = `
     <div class="rowflex"><button class="btn small ghost" id="sHome">🏠 ホーム</button></div>
     <h2 class="viewtitle">設定</h2>
@@ -2898,16 +4060,18 @@ async function renderSettings(root){
       <button class="btn small gold" id="addCourse" style="margin-top:10px">講座を追加</button></div>
     <div class="card"><h3 class="sect" style="margin-top:0">基本時間割の編集</h3><div id="settingsSlots">${slotEditorHTML("set")}</div></div>
     <div class="card"><h3 class="sect" style="margin-top:0">セキュリティ・表示</h3>
-      <label class="f">PIN変更（現在のPIN → 新しいPIN 4〜6桁）</label>
-      <div class="rowflex"><input class="t" id="pinCur" type="password" inputmode="numeric" style="max-width:150px" placeholder="現在のPIN">
-      <input class="t" id="pinNew" type="password" inputmode="numeric" style="max-width:150px" placeholder="新しいPIN">
-      <button class="btn small" id="changePin">PINを変更</button></div>
+      <label class="f">ロックの変更（現在の${secretIsPassphrase() ? "パスフレーズ" : "PIN"} → 新しいロック）</label>
+      <p class="muted">新しいロックは、PIN（4〜6桁の数字）でも、8文字以上のパスフレーズでも構いません（12文字以上が目安です）。変更すると、暗号化された記録すべてを新しい鍵で暗号化し直します。現在のロックを忘れると、データは復旧できません。</p>
+      <div class="rowflex"><input class="t" id="pinCur" type="password" style="max-width:220px" placeholder="現在の${secretIsPassphrase() ? "パスフレーズ" : "PIN"}">
+      <input class="t" id="pinNew" type="password" style="max-width:220px" placeholder="新しいPIN／パスフレーズ">
+      <button class="btn small" id="changePin">ロックを変更</button></div>
       <div class="savednote" id="pinMsg"></div>
+      <p class="muted">現在の方式：<strong>${secretIsPassphrase() ? "パスフレーズ" : "PIN"}</strong></p>
       <label class="f">自動ロック（無操作）</label>
       <select class="t" id="autoLockSel" style="max-width:200px">${[1,2,3,4,5,6,7,8,9,10].map(m=>`<option value="${m}" ${autoLockMinutes()===m?"selected":""}>${m}分</option>`).join("")}</select>
       <label class="f"><input type="checkbox" id="privacyDefault" ${s.privacyDefault?"checked":""} style="width:22px;height:22px;vertical-align:middle"> 起動時のプライバシーモードを既定で ON にする</label>
       <label class="f"><input type="checkbox" id="csvEnabled" ${s.csvEnabled?"checked":""} style="width:22px;height:22px;vertical-align:middle"> 成績・集計の転記用一覧で CSV 出力を有効にする（既定は OFF）</label>
-      <p class="muted">CSV は平文のファイルとして端末に残ります。有効化には PIN の再入力が必要です。バックアップ用途には使わないでください（暗号化アーカイブは第4期で扱います）。</p>
+      <p class="muted">CSV は平文のファイルとして端末に残ります。有効化には PIN／パスフレーズの再入力が必要です。バックアップ用途には使わないでください（バックアップは下の「暗号化バックアップ（受け渡し）」を使ってください）。</p>
     </div>
     <div class="card"><h3 class="sect" style="margin-top:0">読み上げ（点数の読み返し・所見チェック）</h3>
       <label class="f"><input type="checkbox" id="scoreReadback" ${s.scoreReadback!==false?"checked":""} style="width:22px;height:22px;vertical-align:middle"> 点数の読み上げ確認を使う（スコア入力画面でも切り替えできます）</label>
@@ -2956,8 +4120,54 @@ async function renderSettings(root){
       <button class="btn danger" id="setSampleDelete">サンプルデータを消す</button>`
       : `<button class="btn gold" id="setSampleInsert">サンプルデータを入れる</button>`}
       </div></div>
+    <div class="card"><h3 class="sect" style="margin-top:0">年度の切り替えと引き継ぎ（年度移行ウィザード）</h3>
+      <p class="muted">新しい年度を作り、講座・時間割などの「型」と、持ち上がる生徒・申し送りを、画面の案内に沿って引き継ぎます。途中で閉じても、続きから再開できます。</p>
+      ${migYears.length ? `<div class="warnbox">移行の途中になっている年度があります：${migYears.map(y=>`${y.id}年度`).join("、")}。ウィザードを開くと続きから再開できます。</div>` : ""}
+      <button class="btn gold" id="sGoWizard">年度移行ウィザードを開く</button>
+    </div>
+    <div class="card"><h3 class="sect" style="margin-top:0">アーカイブの管理</h3>
+      <p class="muted">アーカイブした年度は、閲覧・印刷・転記・書き出しだけができ、編集はできません（画面とデータの両方で守ります）。解除には PIN／パスフレーズの再入力が必要です。</p>
+      ${state.years.map(y=>`<div class="listitem"><span class="t">${y.id}年度${y.sample||y.id===9999?"（サンプル）":""}</span> <span class="muted">${y.archived?"アーカイブ中（閲覧のみ）":"通常"}</span>
+        <div style="margin-top:4px">${y.archived
+          ? `<button class="btn small" data-unarchive="${y.id}">アーカイブを解除する</button>`
+          : `<button class="btn small" data-archive="${y.id}">アーカイブする</button>`}</div></div>`).join("")}
+    </div>
+    <div class="card"><h3 class="sect" style="margin-top:0">暗号化バックアップ（受け渡し）</h3>
+      <p class="muted">年度のデータを、パスフレーズで暗号化したファイル（.kyomuenc）に書き出します。別の端末の KyomuNote で読み込むと、その端末の鍵で保存し直されます。自動で同期する仕組みではありません。ファイルの受け渡しは手動です。</p>
+      <p class="muted">パスフレーズはこのアプリの PIN とは別に決めてください（最低8文字・12文字以上が目安）。パスフレーズを忘れると、ファイルは開けません。</p>
+      <label class="f">書き出す年度</label>
+      <div>${state.years.map(y=>`<label style="display:block;font-size:16px;margin:4px 0"><input type="checkbox" data-backup-year="${y.id}" ${y.id===state.currentYearId?"checked":""} style="width:20px;height:20px;vertical-align:middle"> ${y.id}年度${y.sample||y.id===9999?"（サンプル）":""}${y.archived?"（アーカイブ中）":""}</label>`).join("")}</div>
+      <label class="f">バックアップ用パスフレーズ</label>
+      <input class="t" id="bkPass1" type="password" autocomplete="new-password" style="max-width:320px">
+      <label class="f">もう一度（確認）</label>
+      <input class="t" id="bkPass2" type="password" autocomplete="new-password" style="max-width:320px">
+      <div class="savednote" id="bkMsg"></div>
+      <div class="rowflex" style="margin-top:8px"><button class="btn gold" id="bkExport">暗号化バックアップを書き出す</button></div>
+      <h3 class="sect">読み込み</h3>
+      <label class="f">バックアップファイル（.kyomuenc）</label>
+      <input class="t" id="bkFile" type="file" accept=".kyomuenc,application/octet-stream">
+      <label class="f">バックアップ用パスフレーズ</label>
+      <input class="t" id="bkImportPass" type="password" autocomplete="off" style="max-width:320px">
+      <div class="savednote" id="bkImportMsg"></div>
+      <div class="rowflex" style="margin-top:8px"><button class="btn" id="bkImport">読み込む</button></div>
+      <p class="muted">読み込みでは、同じ記録どうしは「更新日時が新しい方」が残ります。件数の結果（追加・更新・そのまま）が表示されます。この端末でアーカイブ中の年度は、ファイルから更新されません。</p>
+    </div>
+    <div class="card"><h3 class="sect" style="margin-top:0">本文の暗号化への移行</h3>
+      <p class="muted">第4期から、コマの本文・行事メモ・業務記録・ToDo の本文も暗号化して保存します。以前の形式で残っている本文は、開いたときに順に移行します。ここで一括で完了させることもできます。</p>
+      <p>状態：${L1_STORES.map(st=>`${({lessons:"コマ",events:"行事",workRecords:"業務記録",todos:"ToDo"})[st]}（暗号化済み ${encStatus[st].enc} 件／旧形式 ${encStatus[st].plain} 件）`).join("、")}</p>
+      <div class="savednote" id="encMigMsg"></div>
+      <button class="btn" id="encMigRun" ${encPlainTotal?"":"disabled"}>暗号化への移行を完了させる</button>
+    </div>
+    <div class="card"><h3 class="sect" style="margin-top:0">受け渡し・操作の履歴</h3>
+      <p class="muted">書き出し・読み込み・年度移行・アーカイブ・シュレッダーなどの操作を、「いつ・何を・何件」だけ記録します。記録の内容そのものは残しません。</p>
+      ${transferLogList.length ? transferLogList.slice(0, 30).map(l=>`<div class="listitem"><span class="muted">${esc((l.at||"").slice(0,16).replace("T"," "))}</span> <strong>${esc(transferKindLabel(l.kind))}</strong> <span class="muted">${(l.yearIds||[]).map(y=>y+"年度").join("・")} ${esc(Object.entries(l.counts||{}).map(([k,v])=>`${k}:${v}`).join(" "))}</span></div>`).join("") : `<p class="muted">履歴はまだありません。</p>`}
+    </div>
+    <div class="card"><h3 class="sect" style="margin-top:0">シュレッダー（年度データの完全削除）</h3>
+      <p class="muted">年度のデータを、この端末からまとめて消します。残す期間を終えた年度のための機能です。確認を5段階に分けて、誤って消すことがないようにしています。</p>
+      <button class="btn danger" id="sGoShredder">シュレッダーを開く</button>
+    </div>
     <div class="card"><h3 class="sect" style="margin-top:0">このアプリについて</h3>
-      <p>KyomuNote（デジタル教務手帳）第3期 バージョン <strong>${APP_VERSION}</strong><br>
+      <p>KyomuNote（デジタル教務手帳）第4期 バージョン <strong>${APP_VERSION}</strong><br>
       <span class="muted">データはこの端末の IndexedDB（KyomuNoteDB）にのみ保存され、外部へ送信されません。AI支援を使う場合も、送信先は自分の PC の Ollama だけです。</span></p>
       <button class="btn gold" id="updateBtn">最新の版に更新する</button></div>`;
   document.getElementById("sHome").onclick=()=>{ state.view="home"; render(); };
@@ -3009,12 +4219,92 @@ async function renderSettings(root){
     const cur = document.getElementById("pinCur").value;
     const nw = document.getElementById("pinNew").value;
     const msg = document.getElementById("pinMsg");
-    if (!isValidPin(nw)){ msg.textContent = "新しいPINは4〜6桁の数字にしてください。"; return; }
-    const key = await deriveKey(cur, state.security.salt, state.security.iterations);
-    if (!(await verifyKeyCheck(key, state.security.keyCheck))){ msg.textContent = "現在のPINが違います。"; return; }
-    const made = await createSecurity(nw);
-    state.security = made.rec; state.key = made.key;
-    msg.textContent = "PINを変更しました。";
+    msg.textContent = "暗号化し直しています。しばらくお待ちください…";
+    try {
+      await changeSecret(cur, nw);
+      msg.textContent = "ロックを変更しました。次回からは新しいロックで開きます。";
+      toast("ロックを変更しました");
+      setTimeout(()=>render(), 600);
+    } catch(e){
+      msg.textContent = e.message || "変更できませんでした。";
+    }
+  };
+  // 第4期の設定ボタン
+  document.getElementById("sGoWizard").onclick = ()=>{ state.view = "migration"; render(); };
+  document.getElementById("sGoShredder").onclick = ()=>{ openShredderSheet(); };
+  root.querySelectorAll("[data-archive]").forEach(b=>b.onclick = ()=>{
+    const yid = Number(b.dataset.archive);
+    confirmSheet(`${yid}年度をアーカイブしますか？`,
+      "アーカイブ中は閲覧・印刷・転記・書き出しだけができ、編集はできません。解除はこの画面から、PIN／パスフレーズの再入力で行えます。",
+      "アーカイブする", async ()=>{
+        await archiveYear(yid);
+        toast(`${yid}年度をアーカイブしました`); render();
+      });
+  });
+  root.querySelectorAll("[data-unarchive]").forEach(b=>b.onclick = ()=>{
+    const yid = Number(b.dataset.unarchive);
+    openSheet(`
+      <h3 class="sect" style="margin-top:0">アーカイブを解除します</h3>
+      <p>${yid}年度のアーカイブを解除して、編集できる状態に戻します。確認のため、現在の${secretIsPassphrase() ? "パスフレーズ" : "PIN"}を入力してください。</p>
+      <label class="f">${secretIsPassphrase() ? "パスフレーズ" : "PIN"}</label>
+      <input class="t" id="unarchSecret" type="password" ${secretIsPassphrase() ? "" : 'inputmode="numeric" maxlength="6"'} style="font-size:22px;max-width:320px">
+      <div class="lockmsg" id="unarchMsg"></div>
+      <div class="rowflex" style="margin-top:12px">
+        <button class="btn gold" id="unarchOk">解除する</button>
+        <button class="btn ghost" id="unarchCancel">やめる</button></div>`);
+    document.getElementById("unarchCancel").onclick = ()=>closeSheet();
+    document.getElementById("unarchOk").onclick = async ()=>{
+      try {
+        await unarchiveYear(yid, document.getElementById("unarchSecret").value);
+        closeSheet(); toast(`${yid}年度のアーカイブを解除しました`); render();
+      } catch(e){
+        document.getElementById("unarchMsg").textContent = e.message || "解除できませんでした。";
+      }
+    };
+  });
+  document.getElementById("bkExport").onclick = async ()=>{
+    const msg = document.getElementById("bkMsg");
+    const yearIds = Array.from(root.querySelectorAll("[data-backup-year]")).filter(c=>c.checked).map(c=>Number(c.dataset.backupYear));
+    if (!yearIds.length){ msg.textContent = "書き出す年度を選んでください。"; return; }
+    const p1 = document.getElementById("bkPass1").value;
+    const p2 = document.getElementById("bkPass2").value;
+    if (p1 !== p2){ msg.textContent = "パスフレーズが一致しません。"; return; }
+    const v = validatePassphrase(p1);
+    if (!v.ok){ msg.textContent = "パスフレーズが不十分です（" + v.reasons.join("、") + "）。12文字以上が目安です。"; return; }
+    msg.textContent = "暗号化して書き出しています…";
+    try {
+      const res = await exportBackup(yearIds, p1);
+      downloadTextFile(res.content, res.filename, "application/octet-stream");
+      msg.textContent = `書き出しました：${res.filename}。このファイルはパスフレーズなしでは開けません。大切に保管してください。`;
+    } catch(e){
+      msg.textContent = e.message || "書き出しに失敗しました。";
+    }
+  };
+  document.getElementById("bkImport").onclick = async ()=>{
+    const msg = document.getElementById("bkImportMsg");
+    const f = document.getElementById("bkFile").files[0];
+    if (!f){ msg.textContent = "ファイルを選んでください。"; return; }
+    const pass = document.getElementById("bkImportPass").value;
+    if (!pass){ msg.textContent = "パスフレーズを入力してください。"; return; }
+    msg.textContent = "読み込んでいます…";
+    try {
+      const content = await f.text();
+      const rep = await importBackup(content, pass);
+      msg.textContent = `読み込みました。追加 ${rep.added} 件／更新 ${rep.updated} 件／そのまま ${rep.skipped} 件${rep.skippedArchivedYearIds && rep.skippedArchivedYearIds.length ? `（アーカイブ中の年度 ${rep.skippedArchivedYearIds.join("・")} は更新しませんでした）` : ""}。`;
+      toast("バックアップを読み込みました");
+      setTimeout(()=>render(), 800);
+    } catch(e){
+      msg.textContent = e.message || "読み込みに失敗しました。";
+    }
+  };
+  const encBtn = document.getElementById("encMigRun");
+  if (encBtn) encBtn.onclick = async ()=>{
+    const msg = document.getElementById("encMigMsg");
+    msg.textContent = "移行しています…";
+    const res = await completeEncryptionMigration((n)=>{ msg.textContent = `移行しています…（${n}件）`; });
+    msg.textContent = `移行しました：${res.migrated} 件。残りの旧形式は ${res.remaining} 件です。`;
+    toast("暗号化への移行が進みました");
+    setTimeout(()=>render(), 800);
   };
   document.getElementById("autoLockSel").onchange = (e)=>{ saveSettings({ autoLockMin: Number(e.target.value) }); toast(`自動ロックを ${e.target.value} 分に設定しました`); };
   document.getElementById("privacyDefault").onchange = (e)=>{ saveSettings({ privacyDefault: e.target.checked }); };
@@ -3026,7 +4316,7 @@ async function renderSettings(root){
       <div class="warnbox"><strong>警告：</strong>CSV は暗号化されていない平文ファイルです。書き出したファイルは端末に残り、他のアプリから読まれる可能性があります。転記が済んだらファイル自体を削除してください。</div>
       <p>有効化には現在の PIN の再入力が必要です。</p>
       <label class="f">現在のPIN</label>
-      <input class="t" id="csvPin" type="password" inputmode="numeric" maxlength="6" style="font-size:22px;max-width:220px">
+      <input class="t" id="csvPin" type="password" ${secretIsPassphrase() ? "" : 'inputmode="numeric" maxlength="6"'} style="font-size:22px;max-width:320px">
       <div class="lockmsg" id="csvPinMsg"></div>
       <div class="rowflex" style="margin-top:12px">
         <button class="btn gold" id="csvPinOk">PINを照合して有効化</button>
@@ -3034,9 +4324,8 @@ async function renderSettings(root){
     document.getElementById("csvPinCancel").onclick = ()=>closeSheet();
     document.getElementById("csvPinOk").onclick = async ()=>{
       const pin = document.getElementById("csvPin").value;
-      const key = await deriveKey(pin, state.security.salt, state.security.iterations);
-      if (!(await verifyKeyCheck(key, state.security.keyCheck))){
-        document.getElementById("csvPinMsg").textContent = "PINが違います。有効化しませんでした。";
+      if (!(await verifySecret(pin))){
+        document.getElementById("csvPinMsg").textContent = "PIN／パスフレーズが違います。有効化しませんでした。";
         return;
       }
       saveSettings({ csvEnabled: true });
@@ -3244,7 +4533,12 @@ async function reloadMemberships(){
   }
 }
 async function saveStudentBody(student, bodyPatch){
-  const cur = { name: student.name, kana: student.kana, displayLabel: student.displayLabel, memo: student.memo };
+  // 本文の全項目（status＝在籍/転出 など第4期の追加項目を含む）を保持してから patch を重ねる
+  const cur = {};
+  for (const k of Object.keys(student || {})){
+    if (["id","yearId","level","updatedAt","enc","decryptError"].includes(k)) continue;
+    cur[k] = student[k];
+  }
   const body = Object.assign({}, cur, bodyPatch||{});
   // undefined の項目は持たない（initials運用で氏名を保存しないための表現）
   for (const k of Object.keys(body)) if (body[k]===undefined) delete body[k];
@@ -3252,6 +4546,42 @@ async function saveStudentBody(student, bodyPatch){
   Object.assign(student, body);
   if (bodyPatch && bodyPatch.name===undefined && ("name" in (bodyPatch||{}))){}
   return student;
+}
+
+// ===== 生徒の異動シート（クラス替え・転出。第4期）=====
+function openTransferSheet(studentId, fromGroupId){
+  const st = studentById(studentId);
+  if (!st) return;
+  const others = state.groups.filter(g=>g.id !== fromGroupId);
+  openSheet(`
+    <h3 class="sect" style="margin-top:0">異動 ― ${esc(displayNameOf(st, fromGroupId))}</h3>
+    <p class="muted">出欠・提出・スコア・カルテなどの記録は生徒に紐づいているため、移ってもそのまま付いていきます。IDの付け替えはアプリが行うので、意識する必要はありません。</p>
+    <h3 class="sect">クラスを移る（同じ年度の中で所属を変える）</h3>
+    <label class="f">移る先のグループ</label>
+    <select class="t" id="trGroup">${others.map(g=>`<option value="${g.id}">${esc(g.name)}</option>`).join("") || `<option value="">（他のグループがありません）</option>`}</select>
+    <label class="f">異動日（この日から新しいクラスに所属します）</label>
+    <input class="t" type="date" id="trDate" value="${todayString()}" style="max-width:220px">
+    <div class="rowflex" style="margin-top:10px"><button class="btn gold" id="trMove" ${others.length?"":"disabled"}>クラスを移る</button></div>
+    <h3 class="sect">転出にする（他の学校へ移るなど）</h3>
+    <p class="muted">転出にすると、現在の名簿・集計からは外れます。記録自体は消えず、生徒ページで読み返せます。戻ってきた場合は「在籍に戻す」で元に戻せます。</p>
+    <label class="f">転出日</label>
+    <input class="t" type="date" id="trLeftDate" value="${todayString()}" style="max-width:220px">
+    <div class="rowflex" style="margin-top:10px"><button class="btn danger" id="trLeft">転出にする</button>
+    <button class="btn ghost" id="trCancel">閉じる</button></div>`);
+  document.getElementById("trCancel").onclick = ()=>closeSheet();
+  const mv = document.getElementById("trMove");
+  if (mv) mv.onclick = async ()=>{
+    const toGroupId = document.getElementById("trGroup").value;
+    const date = document.getElementById("trDate").value || todayString();
+    if (!toGroupId){ toast("移る先のグループを選んでください"); return; }
+    await transferStudent(studentId, fromGroupId, toGroupId, date);
+    closeSheet(); toast("クラスを移りました。記録はそのまま付いていきます"); render();
+  };
+  document.getElementById("trLeft").onclick = async ()=>{
+    const date = document.getElementById("trLeftDate").value || todayString();
+    await markStudentLeft(studentId, date);
+    closeSheet(); toast("転出にしました。記録は残っています"); render();
+  };
 }
 
 // ===== 名簿（roster）=====
@@ -3296,9 +4626,17 @@ async function renderRoster(root){
           <span style="flex:1;min-width:130px">ふりがな <input class="t" data-mem-kana="${st.id}" value="${esc(st.kana||"")}"></span>`:""}
           <span style="flex:1;min-width:120px">イニシャル <input class="t" data-mem-label="${st.id}" value="${esc(st.displayLabel||"")}"></span>
           <button class="btn small ghost" data-mem-page="${st.id}">生徒ページ</button>
+          <button class="btn small" data-mem-transfer="${st.id}">異動</button>
           <button class="btn small danger" data-mem-remove="${st.id}">所属を外す</button>
         </div></div>`;
     }).join("");
+    const leftStudents = state.students.filter(st=>isStudentLeft(st));
+    if (leftStudents.length){
+      h += `<h3 class="sect">転出した生徒（記録は残っています）</h3>` + leftStudents.map(st=>`<div class="listitem"><span class="t">${esc(displayNameOf(st))}</span>
+        <span class="muted">転出日：${esc(st.statusDate||"")}</span>
+        <div style="margin-top:4px"><button class="btn small" data-mem-restore="${st.id}">在籍に戻す</button>
+        <button class="btn small ghost" data-mem-page="${st.id}">生徒ページ</button></div></div>`).join("");
+    }
     h += `<h3 class="sect">生徒を追加</h3>
       ${sel.rosterMode==="full"
         ? `<label class="f">氏名</label><input class="t" id="raName" placeholder="氏名">
@@ -3363,6 +4701,11 @@ async function renderRoster(root){
     toast("所属を外しました（生徒の記録自体は残ります）"); render();
   });
   root.querySelectorAll("[data-mem-page]").forEach(b=>b.onclick=()=>{ state.selectedStudentId=b.dataset.memPage; state.view="student"; render(); });
+  root.querySelectorAll("[data-mem-transfer]").forEach(b=>b.onclick=()=>openTransferSheet(b.dataset.memTransfer, sel.id));
+  root.querySelectorAll("[data-mem-restore]").forEach(b=>b.onclick=async ()=>{
+    await markStudentActive(b.dataset.memRestore);
+    toast("在籍に戻しました"); render();
+  });
   document.getElementById("raAdd").onclick = async ()=>{
     const label = document.getElementById("raLabel").value.trim();
     const body = { displayLabel: label, memo: "" };
@@ -3420,7 +4763,10 @@ async function renderRoster(root){
         if (allInitials){
           const st = studentById(sid);
           if (st && (st.name || st.kana)){
-            await putEnc("students", { id: st.id, yearId: st.yearId }, { displayLabel: st.displayLabel||"", memo: st.memo||"" });
+            const nb = { displayLabel: st.displayLabel||"", memo: st.memo||"" };
+            if (st.status) nb.status = st.status;
+            if (st.statusDate) nb.statusDate = st.statusDate;
+            await putEnc("students", { id: st.id, yearId: st.yearId }, nb);
             delete st.name; delete st.kana;
           }
         }
@@ -3660,7 +5006,7 @@ async function renderCheck(root){
   const rec = await getEnc("attendance", lesson.id);
   const marks = Object.assign({}, rec && rec.marks ? rec.marks : {});
   const note = (rec && rec.note) || "";
-  const members = groupMembers(group.id);
+  const members = groupMembers(group.id, date);
   if (!state.checkStudentId || !members.some(x=>x.student.id===state.checkStudentId)){
     state.checkStudentId = members.length ? members[0].student.id : null;
   }
@@ -3780,7 +5126,7 @@ async function renderSubmissions(root){
         ${group?`<span class="badge" style="background:${un?"var(--danger)":"var(--ok)"}">未提出 ${un} 名</span>`:""}
       </div>`;
     }).join("") || `<div class="card">課題はまだありません。</div>`;
-    const courseLessons = (await dbGetByIndex("lessons","byCourse",course.id)).slice().sort((a,b)=>a.date<b.date?-1:1);
+    const courseLessons = (await decAll(await dbGetByIndex("lessons","byCourse",course.id))).slice().sort((a,b)=>a.date<b.date?-1:1);
     h += `<div class="card"><h3 class="sect" style="margin-top:0">新しい課題</h3>
       <label class="f">課題名</label><input class="t" id="saTitle" placeholder="例：ワークシート第3章">
       <label class="f">提出期限</label><input class="t" type="date" id="saDue" value="${todayString()}">
@@ -4579,6 +5925,7 @@ async function renderGrades(root){
       a.download = `${course.name}_${state.gradesTab}_${todayString()}.csv`;
       a.click();
       setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+      logTransfer("csvExport", [state.currentYearId], { rows: rows.length }, a.download);
     };
   }
 }
@@ -4599,7 +5946,7 @@ async function renderProgress(root){
     h += `<h3 class="sect">${esc(cs[0].subject)} ${esc(cs[0].name)}</h3>`;
     for (const c of cs){
       const units = await getUnitsByCourse(c.id);
-      const lessons = await dbGetByIndex("lessons","byCourse",c.id);
+      const lessons = await decAll(await dbGetByIndex("lessons","byCourse",c.id));
       const prog = computeProgress(units, lessons);
       const doneCount = lessons.filter(l=>l.status!=="cancelled").length;
       let currentName = "";
@@ -4622,7 +5969,7 @@ async function renderProgress(root){
   const course = state.courses.find(c=>c.id===state.selectedCourseId) || null;
   if (course){
     const units = (await getUnitsByCourse(course.id)).slice().sort((a,b)=>(a.order||0)-(b.order||0));
-    const lessons = await dbGetByIndex("lessons","byCourse",course.id);
+    const lessons = await decAll(await dbGetByIndex("lessons","byCourse",course.id));
     const prog = computeProgress(units, lessons);
     const perMap = {}; for (const pu of prog.perUnit) perMap[pu.unitId]=pu;
     h += `<div class="card"><h3 class="sect" style="margin-top:0">単元マスタ ― ${esc(course.subject)} ${esc(course.name)}（${esc(course.classLabel)}）</h3>
@@ -5274,7 +6621,7 @@ function openWorkRecordSheet(dutyId, rec){
     rec.cost = document.getElementById("wrCost").value;
     rec.learning = document.getElementById("wrLearning").value;
     rec.yearId = state.currentYearId; rec.level = 1;
-    await dbPut("workRecords", rec);
+    await putL1("workRecords", rec);
     closeSheet(); toast("業務の記録を保存しました"); render();
   };
   const del = document.getElementById("wrDelete");
@@ -5301,7 +6648,7 @@ function openTodoSheet(todo, preset){
     todo.priority = document.getElementById("tdPri").value;
     todo.done = document.getElementById("tdDone").checked;
     todo.yearId = state.currentYearId; todo.level = 1;
-    await dbPut("todos", todo);
+    await putL1("todos", todo);
     closeSheet(); toast("ToDoを保存しました"); render();
   };
   const del = document.getElementById("tdDelete");
@@ -5317,7 +6664,7 @@ async function renderDuties(root){
   <div class="rowflex">${duties.map(d=>`<button class="btn small ${sel&&sel.id===d.id?"gold":"ghost"}" data-duty="${d.id}">${esc(d.name||"（名称なし）")}</button>`).join("")}
   <button class="btn small" id="duAdd">＋ 分掌を追加</button></div>`;
   if (sel){
-    const records = (await getWorkRecordsByDuty(sel.id)).sort((a,b)=> (a.date||"")<(b.date||"")?1:-1);
+    const records = (await decAll(await getWorkRecordsByDuty(sel.id))).sort((a,b)=> (a.date||"")<(b.date||"")?1:-1);
     h += `<div class="card"><h3 class="sect" style="margin-top:0">${esc(sel.name||"")} <span class="muted" style="font-size:14px">${esc(dutyKindLabel(sel.kind))}${sel.role?` ／ ${esc(sel.role)}`:""}</span></h3>
     ${sel.memo?`<p>${esc(sel.memo)}</p>`:""}
     <div class="rowflex"><button class="btn small" id="duEdit">分掌を編集</button>
@@ -5341,7 +6688,8 @@ async function renderDuties(root){
     document.getElementById("wrAdd").onclick = ()=>openWorkRecordSheet(sel.id, null);
     root.querySelectorAll("[data-wr]").forEach(el=>el.onclick = async (e)=>{
       if (e.target.closest("[data-wr-todo]")) return;
-      const rec = await dbGet("workRecords", el.dataset.wr);
+      const recRaw = await dbGet("workRecords", el.dataset.wr);
+      const rec = recRaw ? await decryptMerge(recRaw) : null;
       if (rec) openWorkRecordSheet(sel.id, rec);
     });
     root.querySelectorAll("[data-wr-todo]").forEach(btn=>btn.onclick = (e)=>{
@@ -5479,7 +6827,7 @@ async function renderClub(root){
 
 // ===== 第3期：統合ToDo（todos）=====
 async function renderTodos(root){
-  const all = await getTodosByYear(state.currentYearId);
+  const all = await decAll(await getTodosByYear(state.currentYearId));
   const today = todayString();
   const open = all.filter(t=>!t.done).sort((a,b)=>{
     const da = a.dueDate||"9999-12-31", db = b.dueDate||"9999-12-31";
@@ -5490,7 +6838,8 @@ async function renderTodos(root){
   const originLabel = async (t)=>{
     if (!t.originType) return "";
     if (t.originType==="workRecord"){
-      const wr = await dbGet("workRecords", t.originId);
+      const wrRaw = await dbGet("workRecords", t.originId);
+      const wr = wrRaw ? await decryptMerge(wrRaw) : null;
       return wr ? `出所：会議メモ「${esc(wr.title||"（件名なし）")}」（${esc(wr.date||"")}）` : "出所：会議メモ";
     }
     return "出所：" + esc(t.originType);
@@ -5512,20 +6861,24 @@ async function renderTodos(root){
   document.getElementById("tdAdd").onclick = ()=>openTodoSheet(null, null);
   root.querySelectorAll("[data-todo]").forEach(el=>el.onclick = async (e)=>{
     if (e.target.closest("[data-todo-done]")) return;
-    const t = await dbGet("todos", el.dataset.todo);
+    const tRaw = await dbGet("todos", el.dataset.todo);
+    const t = tRaw ? await decryptMerge(tRaw) : null;
     if (t) openTodoSheet(t, null);
   });
   root.querySelectorAll("[data-todo-done]").forEach(btn=>btn.onclick = async (e)=>{
     e.stopPropagation();
-    const t = await dbGet("todos", btn.dataset.todoDone);
-    if (t){ t.done = true; await dbPut("todos", t); toast("完了にしました"); render(); }
+    const tRaw = await dbGet("todos", btn.dataset.todoDone);
+    const t = tRaw ? await decryptMerge(tRaw) : null;
+    if (t){ t.done = true; await putL1("todos", t); toast("完了にしました"); render(); }
   });
 }
 
 // ===== 第3期：ヘルプ目次（helpindex）=====
 function renderHelpIndex(root){
   const q = (state.helpQuery||"").trim();
-  const entries = AREAS.filter(a=>a.enabled && HELP_TEXTS[a.id]);
+  const extraEntries = Object.keys(HELP_EXTRA_TITLES).filter(id=>HELP_TEXTS[id])
+    .map(id=>({ id, name: HELP_EXTRA_TITLES[id], icon: "📘" }));
+  const entries = [...AREAS.filter(a=>a.enabled && HELP_TEXTS[a.id]), ...extraEntries];
   const hit = (a)=>{
     if (!q) return true;
     const ht = HELP_TEXTS[a.id];
