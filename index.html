@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>KyomuNote ― デジタル教務手帳</title>
-<meta name="description" content="教員向けデジタル教務手帳 KyomuNote（第2期）。週案・授業記録・名簿・出欠・提出物・成績を端末の中だけで安全に。">
+<meta name="description" content="教員向けデジタル教務手帳 KyomuNote（第3期）。週案・授業記録・名簿・出欠・成績・生徒カルテ・所見づくりを端末の中だけで安全に。">
 <meta property="og:title" content="KyomuNote ― デジタル教務手帳">
 <meta property="og:description" content="週案・授業記録・行事を、端末の中だけで安全に扱う教員向け教務手帳。">
 <meta property="og:type" content="website">
@@ -130,9 +130,10 @@ input.t.smallnum{max-width:110px;display:inline-block}
 
 <header id="appHeader" class="hidden">
   <div class="hrow">
-    <div class="appname">KyomuNote<small>デジタル教務手帳 v2.0.0</small></div>
+    <div class="appname">KyomuNote<small>デジタル教務手帳 v3.0.0</small></div>
     <div class="hspacer"></div>
     <span id="headerYear" class="muted" style="color:#cdbf9d"></span>
+    <button class="hbtn" id="helpBtn" title="この画面のヘルプ">？ ヘルプ</button>
     <button class="hbtn" id="privacyBtn" title="プライバシーモード切替">🙈 プライバシー OFF</button>
     <button class="hbtn" id="lockBtn" title="手動ロック">🔒 ロック</button>
   </div>
@@ -154,7 +155,7 @@ input.t.smallnum{max-width:110px;display:inline-block}
   <div class="lockbox">
     <div class="logotitle">
       <div class="big">KyomuNote</div>
-      <div class="sub">デジタル教務手帳 ― 第2期 v2.0.0</div>
+      <div class="sub">デジタル教務手帳 ― 第3期 v3.0.0</div>
       <p class="muted">PINを入力してロックを解除してください。<br>データはこの端末の中だけに保存されます。</p>
     </div>
     <div class="pindots" id="pinDots">○○○○</div>
@@ -221,6 +222,7 @@ const EVENT_CATEGORIES = [
   { id: "trip", label: "出張", color: "#3b6ea5" },
   { id: "deadline", label: "〆切", color: "#7a4b9e" },
   { id: "duty", label: "分掌", color: "#3d7a4e" },
+  { id: "club", label: "部活", color: "#2e7d6b" },
   { id: "daynote", label: "一言メモ", color: "#888888" },
 ];
 function categoryLabel(id) {
@@ -699,6 +701,310 @@ function studentDisplayName(person, privacyOn) {
   return p.name || p.displayLabel || noLabel || "（名称なし）";
 }
 
+// ================= 第3期ロジック =================
+
+// ---------- カルテ・指導・分掌・部活の種別／区分 ----------
+const INTERVIEW_KINDS = [
+  { id: "two", label: "二者面談" },
+  { id: "three", label: "三者面談" },
+  { id: "career", label: "進路相談" },
+  { id: "other", label: "その他" },
+];
+function interviewKindLabel(id) {
+  const s = INTERVIEW_KINDS.find((x) => x.id === id);
+  return s ? s.label : id;
+}
+const CONTACT_CHANNELS = [
+  { id: "phone", label: "電話" },
+  { id: "meeting", label: "面談" },
+  { id: "letter", label: "文書・連絡帳" },
+  { id: "mail", label: "メール等" },
+  { id: "other", label: "その他" },
+];
+function contactChannelLabel(id) {
+  const s = CONTACT_CHANNELS.find((x) => x.id === id);
+  return s ? s.label : id;
+}
+const CONTACT_CONTEXTS = [
+  { id: "homeroom", label: "学級" },
+  { id: "course", label: "教科" },
+  { id: "club", label: "部活" },
+  { id: "other", label: "その他" },
+];
+function contactContextLabel(id) {
+  const s = CONTACT_CONTEXTS.find((x) => x.id === id);
+  return s ? s.label : id;
+}
+const CARE_CATEGORIES = [
+  { id: "allergy", label: "アレルギー" },
+  { id: "reasonable", label: "合理的配慮" },
+  { id: "learning", label: "学習上の支援" },
+  { id: "health", label: "健康面" },
+  { id: "home", label: "家庭環境" },
+  { id: "other", label: "その他" },
+];
+function careCategoryLabel(id) {
+  const s = CARE_CATEGORIES.find((x) => x.id === id);
+  return s ? s.label : id;
+}
+const GUIDANCE_CATEGORIES = [
+  { id: "bullying", label: "いじめ認知" },
+  { id: "trouble", label: "トラブル対応" },
+  { id: "nonattendance", label: "不登校支援" },
+  { id: "sns", label: "SNSトラブル" },
+  { id: "life", label: "進路・生活指導" },
+  { id: "support", label: "特別支援連携" },
+  { id: "other", label: "その他" },
+];
+function guidanceCategoryLabel(id) {
+  const s = GUIDANCE_CATEGORIES.find((x) => x.id === id);
+  return s ? s.label : id;
+}
+const GUIDANCE_STATUSES = [
+  { id: "ongoing", label: "対応中" },
+  { id: "monitoring", label: "見守り" },
+  { id: "closed", label: "終結" },
+];
+function guidanceStatusLabel(id) {
+  const s = GUIDANCE_STATUSES.find((x) => x.id === id);
+  return s ? s.label : id;
+}
+const CAREER_KINDS = [
+  { id: "hope", label: "進路希望" },
+  { id: "school", label: "志望校" },
+  { id: "consult", label: "相談の結果" },
+  { id: "other", label: "その他" },
+];
+function careerKindLabel(id) {
+  const s = CAREER_KINDS.find((x) => x.id === id);
+  return s ? s.label : id;
+}
+const CLUB_ACTIVITY_KINDS = [
+  { id: "practice", label: "練習" },
+  { id: "match", label: "大会・試合" },
+  { id: "trip", label: "遠征" },
+  { id: "admin", label: "部費・備品等の事務" },
+  { id: "other", label: "その他" },
+];
+function clubActivityKindLabel(id) {
+  const s = CLUB_ACTIVITY_KINDS.find((x) => x.id === id);
+  return s ? s.label : id;
+}
+const WORK_RECORD_KINDS = [
+  { id: "meeting", label: "会議・打合せ" },
+  { id: "minutes", label: "議事録" },
+  { id: "memo", label: "業務メモ" },
+  { id: "trip", label: "出張" },
+  { id: "training", label: "研修" },
+];
+function workRecordKindLabel(id) {
+  const s = WORK_RECORD_KINDS.find((x) => x.id === id);
+  return s ? s.label : id;
+}
+const DUTY_KINDS = [
+  { id: "duty", label: "分掌" },
+  { id: "committee", label: "委員会" },
+  { id: "grade", label: "学年会" },
+  { id: "other", label: "その他" },
+];
+function dutyKindLabel(id) {
+  const s = DUTY_KINDS.find((x) => x.id === id);
+  return s ? s.label : id;
+}
+const DOC_KINDS = [
+  { id: "report", label: "通知表" },
+  { id: "guidance", label: "指導要録" },
+  { id: "survey", label: "調査書" },
+  { id: "other", label: "その他" },
+];
+function docKindLabel(id) {
+  const s = DOC_KINDS.find((x) => x.id === id);
+  return s ? s.label : id;
+}
+const TODO_PRIORITIES = [
+  { id: "high", label: "高" },
+  { id: "normal", label: "通常" },
+  { id: "low", label: "低" },
+];
+function todoPriorityLabel(id) {
+  const s = TODO_PRIORITIES.find((x) => x.id === id);
+  return s ? s.label : id;
+}
+const TODO_PRIORITY_ORDER = { high: 0, normal: 1, low: 2 };
+
+// ---------- 指導記録の案件束ね（設計 §3.2 guidanceRecords） ----------
+// records は復号済みレコード（平文キー＋本文を展開したもの）の配列を想定する
+function groupGuidanceCases(records) {
+  const byCase = new Map();
+  for (const r of records || []) {
+    if (!r || r.caseId == null) continue;
+    if (!byCase.has(r.caseId)) byCase.set(r.caseId, []);
+    byCase.get(r.caseId).push(r);
+  }
+  const cases = [];
+  for (const [caseId, recs] of byCase) {
+    const sorted = recs.slice().sort((a, b) =>
+      compareDates(a.date || "", b.date || "") ||
+      ((a.updatedAt || 0) < (b.updatedAt || 0) ? -1 : (a.updatedAt || 0) > (b.updatedAt || 0) ? 1 : 0));
+    const latest = sorted[sorted.length - 1] || null;
+    cases.push({
+      caseId,
+      studentId: latest ? latest.studentId : null,
+      records: sorted,
+      latest,
+      status: latest ? latest.status : null,
+      count: sorted.length,
+    });
+  }
+  return cases.sort((a, b) => compareDates(b.latest.date || "", a.latest.date || ""));
+}
+function guidanceDueList(records) {
+  return (records || [])
+    .filter((r) => r && r.nextActionDue && r.status !== "closed")
+    .slice()
+    .sort((a, b) => compareDates(a.nextActionDue, b.nextActionDue));
+}
+
+// ---------- 文字数（設計 §3.4） ----------
+function charCount(text) {
+  return Array.from(text == null ? "" : String(text)).length;
+}
+function sectionCharStatus(count, min, max) {
+  const lo = min || 0;
+  const hi = max || 0;
+  if (!lo && !hi) return "none";
+  if (count < lo) return "short";
+  if (hi > 0 && count > hi) return "over";
+  return "ok";
+}
+
+// ---------- 所見テンプレート（設計 §3.2 docTemplates・§3.4） ----------
+// 組み込み分はコード内に持つ。docTemplates ストアにはユーザー作成分だけが入る
+const BUILTIN_DOC_TEMPLATES = [
+  {
+    id: "builtin-report", docKind: "report", name: "通知表（組み込み）", builtin: true,
+    sections: [
+      { key: "knowledge", label: "学習の様子（知識・技能）", viewpoint: "knowledge", charMin: 50, charMax: 150, guide: "テストや授業での理解の定着について書きます。" },
+      { key: "thinking", label: "学習の様子（思考・判断・表現）", viewpoint: "thinking", charMin: 50, charMax: 150, guide: "考えを深めたり、表現したりする姿について書きます。" },
+      { key: "attitude", label: "学習の様子（主体的に学習に取り組む態度）", viewpoint: "attitude", charMin: 50, charMax: 150, guide: "粘り強さや、学びに向かう姿勢について書きます。" },
+      { key: "life", label: "生活・行動の様子", viewpoint: "life", charMin: 50, charMax: 200, guide: "学校生活での様子、係や委員会、行事での姿について書きます。" },
+    ],
+  },
+  {
+    id: "builtin-guidance", docKind: "guidance", name: "指導要録（組み込み）", builtin: true,
+    sections: [
+      { key: "learning", label: "学習の記録（所見）", viewpoint: "knowledge", charMin: 100, charMax: 300, guide: "学習状況全般の所見を書きます。" },
+      { key: "life", label: "行動の記録（所見）", viewpoint: "life", charMin: 100, charMax: 300, guide: "行動・生活面の所見を書きます。" },
+      { key: "career", label: "進路に関する記録", viewpoint: "career", charMin: 0, charMax: 200, guide: "進路希望や相談の経過を書きます。" },
+    ],
+  },
+  {
+    id: "builtin-survey", docKind: "survey", name: "調査書（組み込み）", builtin: true,
+    sections: [
+      { key: "learning", label: "学習に関する所見", viewpoint: "knowledge", charMin: 100, charMax: 400, guide: "調査書に記載する、学習面の所見を書きます。" },
+      { key: "life", label: "人物・行動に関する所見", viewpoint: "life", charMin: 100, charMax: 400, guide: "人物・行動面の所見を書きます。" },
+      { key: "career", label: "進路希望", viewpoint: "career", charMin: 0, charMax: 200, guide: "志望校・進路希望について書きます。" },
+    ],
+  },
+  {
+    id: "builtin-other", docKind: "other", name: "その他（組み込み）", builtin: true,
+    sections: [
+      { key: "main", label: "所見", viewpoint: "none", charMin: 0, charMax: 0, guide: "" },
+    ],
+  },
+];
+function builtinTemplate(docKind) {
+  return BUILTIN_DOC_TEMPLATES.find((t) => t.docKind === docKind) || null;
+}
+function resolveDocTemplate(customTemplates, docKind) {
+  const cands = (customTemplates || []).filter((t) => t && t.docKind === docKind);
+  if (cands.length) {
+    return cands.slice().sort((a, b) =>
+      (a.updatedAt || 0) < (b.updatedAt || 0) ? 1 : (a.updatedAt || 0) > (b.updatedAt || 0) ? -1 : 0)[0];
+  }
+  return builtinTemplate(docKind);
+}
+// 所見メモの観点をテンプレート節の viewpoint へ対応づける（設計 §3.4）
+function obsToSectionViewpoint(viewpoint) {
+  if (viewpoint === "knowledge") return "knowledge";
+  if (viewpoint === "thinking") return "thinking";
+  if (viewpoint === "attitude") return "attitude";
+  return "life";
+}
+// 所見づくりの材料集約（保存せず都度計算。設計 §3.4）
+function buildCommentMaterials(input) {
+  const src = input || {};
+  const studentId = src.studentId;
+  const sections = (src.template && src.template.sections) || [];
+  const bySection = {};
+  for (const sec of sections) bySection[sec.key] = [];
+  for (const obs of src.observations || []) {
+    if (!obs) continue;
+    const vp = obsToSectionViewpoint(obs.viewpoint);
+    const sec = sections.find((s) => s.viewpoint === vp) || sections.find((s) => s.viewpoint === "none");
+    if (!sec) continue;
+    bySection[sec.key].push({ kind: "observation", date: obs.date, text: obs.text });
+  }
+  const career = (src.careerRecords || []).slice()
+    .sort((a, b) => compareDates(a.date || "", b.date || ""));
+  const careerSec = sections.find((s) => s.viewpoint === "career");
+  if (careerSec) {
+    for (const rec of career) {
+      const text = [rec.schoolName, rec.department, rec.note]
+        .filter((x) => x != null && String(x) !== "")
+        .join(" ");
+      bySection[careerSec.key].push({ kind: "career", date: rec.date, text });
+    }
+  }
+  // 出欠は summarizeAttendance と同じ集計を、この生徒分だけ自前で数える
+  const attendance = { total: 0, byStatus: {} };
+  for (const marks of src.attendanceMarksList || []) {
+    if (!marks) continue;
+    const rec = marks[studentId];
+    if (!rec || !rec.status) continue;
+    attendance.total += 1;
+    attendance.byStatus[rec.status] = (attendance.byStatus[rec.status] || 0) + 1;
+  }
+  const submissions = src.submissions || [];
+  const submissionSummary = {
+    total: submissions.length,
+    unsubmitted: submissions.filter((s) => !s || !s.state).length,
+    resubmit: submissions.filter((s) => s && s.state && s.state.status === "resubmit").length,
+    late: submissions.filter((s) => s && s.state && s.state.status === "late").length,
+  };
+  const scores = (src.scores || []).slice()
+    .sort((a, b) => compareDates(a.date || "", b.date || ""));
+  return { bySection, attendance, submissionSummary, scores, career };
+}
+
+// ---------- 匿名化（設計 §5.3。AIへ渡す前の氏名等の置換） ----------
+function anonymizeText(text, replacements) {
+  let out = text == null ? "" : String(text);
+  for (const r of replacements || []) {
+    if (!r || !r.from) continue;
+    out = out.split(r.from).join(r.to == null ? "" : String(r.to));
+  }
+  return out;
+}
+
+// ---------- 統合ToDo（設計 §3.2 todos・§4.2） ----------
+function todosDueList(todos, todayStr) {
+  return (todos || [])
+    .filter((t) => t && !t.done && t.dueDate && t.dueDate <= todayStr)
+    .slice()
+    .sort((a, b) =>
+      compareDates(a.dueDate, b.dueDate) ||
+      ((TODO_PRIORITY_ORDER[a.priority] != null ? TODO_PRIORITY_ORDER[a.priority] : 1) -
+        (TODO_PRIORITY_ORDER[b.priority] != null ? TODO_PRIORITY_ORDER[b.priority] : 1)));
+}
+
+// ---------- Level 3 セッション（設計 §5.1） ----------
+const L3_IDLE_DEFAULT_MIN = 5;
+function l3SessionActive(session, now, idleMin = L3_IDLE_DEFAULT_MIN) {
+  if (!session || session.active !== true) return false;
+  return (now - (session.lastActive || 0)) < idleMin * 60000;
+}
+
 function uuid() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
   return "id-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
@@ -723,19 +1029,32 @@ const LOGIC = {
   VIEWPOINTS, VIEWPOINT_IDS, viewpointLabel, normalizeViewWeights,
   defaultGradeSettings, ratingForScore, computeGrades,
   computeProgress, seatKey, parseSeatKey, activeSeatPlan, studentDisplayName,
+  INTERVIEW_KINDS, interviewKindLabel, CONTACT_CHANNELS, contactChannelLabel,
+  CONTACT_CONTEXTS, contactContextLabel, CARE_CATEGORIES, careCategoryLabel,
+  GUIDANCE_CATEGORIES, guidanceCategoryLabel, GUIDANCE_STATUSES, guidanceStatusLabel,
+  CAREER_KINDS, careerKindLabel, CLUB_ACTIVITY_KINDS, clubActivityKindLabel,
+  WORK_RECORD_KINDS, workRecordKindLabel, DUTY_KINDS, dutyKindLabel,
+  DOC_KINDS, docKindLabel, TODO_PRIORITIES, todoPriorityLabel, TODO_PRIORITY_ORDER,
+  groupGuidanceCases, guidanceDueList, charCount, sectionCharStatus,
+  BUILTIN_DOC_TEMPLATES, builtinTemplate, resolveDocTemplate, obsToSectionViewpoint,
+  buildCommentMaterials, anonymizeText, todosDueList,
+  L3_IDLE_DEFAULT_MIN, l3SessionActive,
 };
 
 // KyomuNote db.mjs — IndexedDB アクセス層（素の IDB API の Promise ラッパー）
-// DB名 KyomuNoteDB version 2 / 第1期7ストア＋第2期12ストア（PHASE2_DESIGN §3.1・§3.5）
+// DB名 KyomuNoteDB version 3 / 第1期7ストア＋第2期13ストア＋第3期13ストア（PHASE3_DESIGN §3.1・§3.5＋要確認マーカー）
 // ブラウザ用モジュール。build.mjs が export を外して index.html に連結する。
 
 const DB_NAME = "KyomuNoteDB";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_NAMES = [
   "meta", "years", "terms", "courses", "baseSlots", "lessons", "events",
   "groups", "students", "memberships", "seatPlans", "attendance",
   "assignments", "submissionRecords", "tests", "scoreRecords",
   "observations", "units", "gradeSettings", "gradeSnapshots",
+  "interviews", "contacts", "careNotes", "guidanceRecords", "careerRecords",
+  "memberProfiles", "clubActivities", "commentDrafts", "duties",
+  "workRecords", "todos", "docTemplates", "reviewMarkers",
 ];
 
 let _dbPromise = null;
@@ -797,6 +1116,45 @@ function openDB() {
         units.createIndex("byCourse", "courseId", { unique: false });
         db.createObjectStore("gradeSettings", { keyPath: "id" });
         db.createObjectStore("gradeSnapshots", { keyPath: "id" });
+      }
+      if (oldVersion < 3) {
+        // 第3期：ストアを「追加するだけ」。既存20ストアとそのデータには一切触れない（設計 §3.5）
+        const interviews = db.createObjectStore("interviews", { keyPath: "id" });
+        interviews.createIndex("byStudent", "studentId", { unique: false });
+        interviews.createIndex("byDate", "date", { unique: false });
+        const contacts = db.createObjectStore("contacts", { keyPath: "id" });
+        contacts.createIndex("byStudent", "studentId", { unique: false });
+        contacts.createIndex("byDate", "date", { unique: false });
+        const careNotes = db.createObjectStore("careNotes", { keyPath: "id" });
+        careNotes.createIndex("byStudent", "studentId", { unique: false });
+        const guidanceRecords = db.createObjectStore("guidanceRecords", { keyPath: "id" });
+        guidanceRecords.createIndex("byStudent", "studentId", { unique: false });
+        guidanceRecords.createIndex("byDate", "date", { unique: false });
+        guidanceRecords.createIndex("byCase", "caseId", { unique: false });
+        const careerRecords = db.createObjectStore("careerRecords", { keyPath: "id" });
+        careerRecords.createIndex("byStudent", "studentId", { unique: false });
+        careerRecords.createIndex("byDate", "date", { unique: false });
+        const memberProfiles = db.createObjectStore("memberProfiles", { keyPath: "id" });
+        memberProfiles.createIndex("byStudent", "studentId", { unique: false });
+        const clubActivities = db.createObjectStore("clubActivities", { keyPath: "id" });
+        clubActivities.createIndex("byGroup", "groupId", { unique: false });
+        clubActivities.createIndex("byDate", "date", { unique: false });
+        const commentDrafts = db.createObjectStore("commentDrafts", { keyPath: "id" });
+        commentDrafts.createIndex("byStudent", "studentId", { unique: false });
+        const duties = db.createObjectStore("duties", { keyPath: "id" });
+        duties.createIndex("byYear", "yearId", { unique: false });
+        const workRecords = db.createObjectStore("workRecords", { keyPath: "id" });
+        workRecords.createIndex("byYear", "yearId", { unique: false });
+        workRecords.createIndex("byDate", "date", { unique: false });
+        workRecords.createIndex("byDuty", "dutyId", { unique: false });
+        const todos = db.createObjectStore("todos", { keyPath: "id" });
+        todos.createIndex("byYear", "yearId", { unique: false });
+        todos.createIndex("byDue", "dueDate", { unique: false });
+        todos.createIndex("byOrigin", "originId", { unique: false });
+        db.createObjectStore("docTemplates", { keyPath: "id" });
+        const reviewMarkers = db.createObjectStore("reviewMarkers", { keyPath: "id" });
+        reviewMarkers.createIndex("byStudent", "studentId", { unique: false });
+        reviewMarkers.createIndex("byYear", "yearId", { unique: false });
       }
     };
     req.onsuccess = () => {
@@ -895,6 +1253,23 @@ async function getObservationsByStudent(studentId) { return dbGetByIndex("observ
 async function getObservationsByCourse(courseId) { return dbGetByIndex("observations", "byCourse", courseId); }
 async function getUnitsByCourse(courseId) { return dbGetByIndex("units", "byCourse", courseId); }
 
+// 第3期ヘルパー
+async function getInterviewsByStudent(studentId) { return dbGetByIndex("interviews", "byStudent", studentId); }
+async function getContactsByStudent(studentId) { return dbGetByIndex("contacts", "byStudent", studentId); }
+async function getCareNotesByStudent(studentId) { return dbGetByIndex("careNotes", "byStudent", studentId); }
+async function getGuidanceByStudent(studentId) { return dbGetByIndex("guidanceRecords", "byStudent", studentId); }
+async function getGuidanceByCase(caseId) { return dbGetByIndex("guidanceRecords", "byCase", caseId); }
+async function getCareerByStudent(studentId) { return dbGetByIndex("careerRecords", "byStudent", studentId); }
+async function getClubActivitiesByGroup(groupId) { return dbGetByIndex("clubActivities", "byGroup", groupId); }
+async function getCommentDraftsByStudent(studentId) { return dbGetByIndex("commentDrafts", "byStudent", studentId); }
+async function getDutiesByYear(yearId) { return dbGetByIndex("duties", "byYear", yearId); }
+async function getWorkRecordsByYear(yearId) { return dbGetByIndex("workRecords", "byYear", yearId); }
+async function getWorkRecordsByDuty(dutyId) { return dbGetByIndex("workRecords", "byDuty", dutyId); }
+async function getTodosByYear(yearId) { return dbGetByIndex("todos", "byYear", yearId); }
+async function getTodosByOrigin(originId) { return dbGetByIndex("todos", "byOrigin", originId); }
+async function getReviewMarkersByStudent(studentId) { return dbGetByIndex("reviewMarkers", "byStudent", studentId); }
+async function getReviewMarkersByYear(yearId) { return dbGetByIndex("reviewMarkers", "byYear", yearId); }
+
 const KyomuDB = {
   DB_NAME, DB_VERSION, STORE_NAMES,
   open: openDB, openDB,
@@ -907,6 +1282,11 @@ const KyomuDB = {
   getSeatPlansByGroup, getAttendanceByDate, getAttendanceByCourseRange,
   getAssignmentsByCourse, getTestsByCourse, getObservationsByStudent,
   getObservationsByCourse, getUnitsByCourse,
+  getInterviewsByStudent, getContactsByStudent, getCareNotesByStudent,
+  getGuidanceByStudent, getGuidanceByCase, getCareerByStudent,
+  getClubActivitiesByGroup, getCommentDraftsByStudent, getDutiesByYear,
+  getWorkRecordsByYear, getWorkRecordsByDuty, getTodosByYear, getTodosByOrigin,
+  getReviewMarkersByStudent, getReviewMarkersByYear,
 };
 
 </script>
@@ -930,12 +1310,146 @@ const AREAS = [
   { id: "student", name: "生徒ページ", desc: "1人の生徒の出欠・提出・スコア・所見メモの集約", icon: "🧑", phase: 2, enabled: true, showOnHome: false },
   { id: "grades", name: "成績・集計", desc: "テスト記録・観点別集計・評定シミュレーション・転記用一覧", icon: "📊", phase: 2, enabled: true, showOnHome: true },
   { id: "progress", name: "進度トラッカー", desc: "講座ごとの単元マスタと到達位置の比較", icon: "🧭", phase: 2, enabled: true, showOnHome: false },
-  // 第3期以降: student カルテ詳細 / duty / club をここに追加する
+  // 第3期
+  { id: "guidance", name: "生徒指導", desc: "案件ごとの指導記録（Level 3・再認証の内側）", icon: "🛡", phase: 3, enabled: true, showOnHome: true, level3: true },
+  { id: "comments", name: "所見づくり", desc: "日々の記録から通知表・要録・調査書の所見の下書きを組み立てる", icon: "✏️", phase: 3, enabled: true, showOnHome: true },
+  { id: "duties", name: "分掌・会議", desc: "分掌組織・議事録・会議メモ・出張・研修の記録", icon: "🗂", phase: 3, enabled: true, showOnHome: true },
+  { id: "club", name: "部活動", desc: "部員・活動予定（行事と共用）・活動実績", icon: "🏃", phase: 3, enabled: true, showOnHome: true },
+  { id: "todos", name: "ToDo", desc: "期限・優先度つきの統合ToDo（会議メモからも切り出せます）", icon: "📌", phase: 3, enabled: true, showOnHome: true },
+  { id: "helpindex", name: "ヘルプ目次", desc: "全画面のヘルプ一覧とキーワード検索", icon: "❓", phase: 3, enabled: true, showOnHome: true },
+  { id: "review", name: "確認待ち一覧", desc: "「要確認」マーカーを付けた対象を集めて見直す", icon: "⚑", phase: 3, enabled: true, showOnHome: true },
 ];
 function areaById(id){ return AREAS.find(a=>a.id===id) || null; }
 
+// ===== 場面別ヘルプ（第3期追加）=====
+// 各画面のヘルプ文。構成は「できること／手順／注意点」の3部。将来の画面追加時は
+// AREAS へエリアを足し、ここへ同じ形で1件追加するだけでよい。
+const HELP_TEXTS = {
+  home: { keywords: "入口 ランチャー 要約",
+    can: ["すべての業務エリアへの入口です", "今日の要約（次のコマ・行事・一言メモ・期限の来たToDo）を確認できます"],
+    steps: ["行きたい業務のボタンを押すと、その画面が開きます", "今日の要約のボタンから、今日の画面・日エリア・授業記録へも進めます"],
+    notes: ["プライバシーモードが ON のときは、生徒指導エリアは一覧に出ません"] },
+  today: { keywords: "今日 今の時限",
+    can: ["今日のコマ・行事・一言メモを1画面で確認できます", "各コマから授業記録・出欠チェックへ直接進めます"],
+    steps: ["コマの「授業記録を開く」で記録画面へ、「出欠チェック」で出欠入力へ進みます", "一言メモは「日エリアで編集」から書けます"],
+    notes: ["今の時限は時刻からの目安で強調されます"] },
+  week: { keywords: "週間 時間割 週案",
+    can: ["月〜土×時限の週間時間割（週案）を見られます", "マスを押すとコマシートが開きます"],
+    steps: ["前週／今週／翌週ボタンで週を移動します", "マスを押すと、そのコマの一言メモ・状態・授業記録への入口が開きます"],
+    notes: ["コマ枠に書けるのは一言メモだけです。詳しい記録は授業記録の画面で書きます"] },
+  month: { keywords: "月間 カレンダー",
+    can: ["行事・記録の有無・日の一言メモを月単位で見られます"],
+    steps: ["日を押すと、その日の日エリアが開きます", "前月／翌月ボタンで月を移動します"],
+    notes: ["色の丸は行事の種類、金色の●は授業記録がある日です"] },
+  year: { keywords: "年間 学期 考査 時数",
+    can: ["4月〜3月の12か月と、学期・考査期間の帯を見られます", "講座ごとの年間標準時数と記録済みコマ数の進み具合を確認できます"],
+    steps: ["「行事・考査期間を追加」から考査期間などを登録できます", "講座のカウンターを押すと、その講座の記録一覧が開きます"],
+    notes: ["記録済みコマ数は休講のコマも含めて数えています"] },
+  courses: { keywords: "講座 一覧",
+    can: ["担当講座の一覧と、講座ごとの記録コマ数を見られます"],
+    steps: ["講座を押すと、その講座の授業記録を時系列で見られます"],
+    notes: ["講座の追加・削除は設定画面で行います"] },
+  course: { keywords: "講座 記録 時系列",
+    can: ["1つの講座の授業記録を時系列でたどれます", "進度トラッカー・提出物・成績・集計・名簿へ進めます"],
+    steps: ["記録を押すと、そのコマの授業記録が開きます", "上のボタンから各エリアへ移動できます"],
+    notes: ["名簿グループが未設定の講座では、提出物や成績の対象生徒が出ません。設定画面で講座に名簿グループを結び付けてください"] },
+  day: { keywords: "日 一言メモ 行事 出欠",
+    can: ["その日の一言メモ・行事・コマ・出欠のまとめを扱えます"],
+    steps: ["一言メモは入力すると自動で保存されます", "行事の追加は「行事を追加」から、コマの記録は各コマのボタンから進みます"],
+    notes: ["一言メモは行事とは別の扱いで、月間・年間では小さく表示されます"] },
+  lesson: { keywords: "授業記録 計画 実践 板書 申し送り",
+    can: ["そのコマの授業計画（単元・ねらい・展開・板書・準備物）と実践記録（進度・振り返り・申し送り）を書けます"],
+    steps: ["入力すると自動で保存されます", "単元は単元マスタから選ぶことも、自由に書くこともできます"],
+    notes: ["ここは Level 1（一般業務）の記録です。生徒個人に深く関わる内容は、生徒ページ（カルテ）や生徒指導に書いてください"] },
+  settings: { keywords: "設定 年度 学期 講座 基本時間割 PIN 自動ロック 定型文 AI",
+    can: ["年度・学期・講座・基本時間割の管理、PIN変更、自動ロック、定型文、CSV出力、AI支援の設定ができます"],
+    steps: ["年度を切り替えると、その年度のデータが表示されます", "PIN変更は現在のPINの照合が必要です"],
+    notes: ["データはこの端末の中だけに保存され、外部へは送信されません", "AI支援は自分のPCで動くローカルAI（Ollama）への接続だけです。既定は OFF です"] },
+  roster: { keywords: "名簿 グループ イニシャル 出席番号",
+    can: ["学級・講座・部活のグループ名簿を編集できます", "氏名を保存しない「イニシャル／番号のみ」運用も選べます"],
+    steps: ["グループを作り、生徒を追加して出席番号を付けます", "講座グループは、作成時に選んだ講座へ自動で結び付きます"],
+    notes: ["イニシャル運用のグループでは、氏名の入力欄自体がなく、氏名は保存されません", "氏名モードからイニシャル運用へ切り替えると、条件に合う生徒の氏名が消去されます（元に戻せません）"] },
+  seats: { keywords: "座席表 席替え 考査",
+    can: ["通常時／考査時の座席配置を作れます", "座席を押すと、その生徒のクイック記録（出欠・所見メモ・カルテ）が開きます"],
+    steps: ["閲覧／編集を切り替えて座席を割り当てます", "席替えは新しい配置として追加され、前の配置は履歴として残ります"],
+    notes: ["座席の対応（誰がどこか）は暗号化して保存されます", "プライバシーモードでは氏名の代わりに出席番号が表示されます"] },
+  check: { keywords: "出欠 チェック 遅刻 早退 事故欠",
+    can: ["そのコマの出欠を取れます（出席が既定で、異常のある生徒だけを記録します）", "生徒ごとに「その他（自由記述）」の事情も残せます"],
+    steps: ["生徒の状態ボタンを押すと、その場で保存されます", "座席表や今日の画面からも同じチェックへ来られます"],
+    notes: ["出欠の記録は暗号化して保存されます", "状態だけでなく事情も残したいときは、自由記述欄を使ってください"] },
+  submissions: { keywords: "提出物 課題 未提出",
+    can: ["課題ごとの提出チェックと、未提出者リストの自動抽出ができます"],
+    steps: ["課題を作り、対象の生徒一覧で提出状態を押していきます", "記録のない生徒が「未提出」として一覧に出ます（免除は除きます）"],
+    notes: ["提出状態は暗号化して保存されます", "課題の観点配分は、成績・集計の観点別集計に使われます"] },
+  student: { keywords: "生徒ページ カルテ 面談 保護者連絡 配慮 進路 所見",
+    can: ["1人の生徒の出欠・提出・スコア・所見メモを集約して見られます", "カルテとして、進路の推移、面談・保護者連絡・配慮事項を記録できます", "「所見を作る」から所見づくりへ進めます"],
+    steps: ["上の選択欄で生徒を選びます", "面談・連絡・配慮は Level 3 です。「開く」を押して PIN を入れ直すと読めるようになります"],
+    notes: ["面談・保護者連絡・配慮事項は Level 3（最重要）です。暗号化され、プライバシーモードでは見出しごと表示されません", "進路の推移は Level 2 です"] },
+  grades: { keywords: "成績 集計 観点 評定 転記 CSV",
+    can: ["テストの記録、3観点の集計と評定シミュレーションができます", "公式システムへの転記を助ける一覧と一時コピーができます", "確定した所見も転記用一覧に載ります"],
+    steps: ["講座と学期を選び、テストを登録してスコアを入力します", "重みやしきい値を変えると、その場で再計算されます（保存はされません）", "残したいときは「確定する」でスナップショットとして保存します"],
+    notes: ["スコアや評定は暗号化して保存されます", "転記用一覧はプライバシーモードでは開けません", "CSV出力は既定 OFF です。平文ファイルとして端末に残る点に注意してください"] },
+  progress: { keywords: "進度 単元 比較",
+    can: ["単元ごとの到達位置を、クラス・講座のあいだで比べられます"],
+    steps: ["単元マスタに単元と予定コマ数を登録します", "授業記録で単元を選ぶと、実施コマ数が数えられます"],
+    notes: ["単元マスタは任意です。未登録でも授業記録は自由記述で使えます", "休講のコマは実施コマ数に数えません"] },
+  guidance: { keywords: "生徒指導 案件 いじめ トラブル 報告 期限",
+    can: ["生徒指導の記録を案件ごとに時系列で残せます", "管理職への報告済み、次回アクションとその期限を管理できます"],
+    steps: ["PINを入れ直して開きます", "案件を選び、記録を追加していきます。新しい案件は「新しい案件」から作ります"],
+    notes: ["ここは Level 3（最重要）です。暗号化され、種別や報告の有無も表には出ません", "画面を離れる・しばらく操作しない・プライバシーモードを入れる、のいずれかで自動的に閉じます", "次回アクションの期限はこの画面の中だけに表示され、ホームやToDoには出ません"] },
+  comments: { keywords: "所見 通知表 指導要録 調査書 下書き AI 推敲",
+    can: ["日々の所見メモ・出欠・提出・スコア・進路の記録を材料として自動で集め、文書ごとの所見の下書きを書けます", "確定した下書きは、成績・集計の転記用一覧に載ります"],
+    steps: ["文書の種類・生徒・学期を選びます", "節ごとに材料が並ぶので、「差し込む」で文章を取り込みながら下書きを書きます（自動保存）", "書き終えたら「確定する」を押します"],
+    notes: ["材料は開くたびに集め直します。面談・連絡・配慮（Level 3）は、最初は材料に含まれません", "AI支援（任意・既定OFF）は自分のPCのローカルAIだけを使い、氏名を番号に置き換えた文章を確認してから送ります。Level 3 の記録はAIには渡りません"] },
+  duties: { keywords: "分掌 委員会 学年会 会議 議事録 出張 研修 復命",
+    can: ["分掌・委員会・学年会の組織と、議事録・会議メモ・出張・研修の記録を扱えます", "会議メモから ToDo を切り出せます"],
+    steps: ["組織を登録し、選んでから記録を追加します", "記録の画面で「ToDoにする」を押すと、期限と優先度だけ決めて ToDo にできます"],
+    notes: ["会議メモやToDoには生徒名が書かれることがあるため、プライバシーモードでは本文が伏せられます", "生徒個人に深く関わる内容は、カルテや生徒指導（暗号化）に書いてください"] },
+  club: { keywords: "部活動 部員 パート 活動予定 実績 大会 遠征 部費",
+    can: ["部の画面で、部員・活動予定・活動実績をまとめて扱えます", "部員ごとのパートやポジションを記録できます"],
+    steps: ["部（グループ）を選びます。無ければここで作れます", "活動予定は行事として登録され、カレンダーにも出ます", "実績は「実績を追加」から記録します。前回の複製もできます"],
+    notes: ["部員の保護者連絡は、生徒ページ（カルテ）の連絡ログと共通です。部活専用の連絡帳は作りません", "部費・備品は実績の「事務」にメモする範囲です（出納帳はありません）"] },
+  todos: { keywords: "ToDo 期限 優先度 出所",
+    can: ["期限と優先度のある仕事を一覧できます", "会議メモから切り出した ToDo は、元のメモへ戻れます"],
+    steps: ["「追加」から直接書くか、会議メモの画面で「ToDoにする」を使います", "終わったらチェックを入れて完了にします"],
+    notes: ["期限が来た ToDo は、ホームと今日の画面にも自動で出ます", "生徒指導の次回アクションは、ここには混ざりません（生徒指導の画面の中だけです）"] },
+  helpindex: { keywords: "ヘルプ 目次 検索 使い方",
+    can: ["全画面のヘルプを一覧できます", "キーワードで探して、その画面へ移動できます"],
+    steps: ["探したい言葉を入力して「検索」を押すと、関係する画面だけが残ります", "「この画面のヘルプを開く」でその画面のヘルプが、「画面へ移動」でその画面が開きます"],
+    notes: ["各画面の右上にある「？ ヘルプ」からも、その画面のヘルプが開きます"] },
+  review: { keywords: "要確認 マーカー 確認待ち 見直し 違和感",
+    can: ["「要確認」マーカーを付けた対象をまとめて見直せます", "タップで該当箇所（成績・生徒ページ・所見）へ飛べます", "直したらその場でマーカーを外せます"],
+    steps: ["気になる対象の「⚑」ボタンでマーカーを付けます（短いメモも残せます）", "この一覧で残っている件数と内容を確認します", "対象を開いて直し、マーカーを外すと一覧から消えます"],
+    notes: ["マーカーは Level 2 で暗号化保存されます", "プライバシーモードでは氏名を出さず番号表示になります", "機械の集計や下書きは鵜呑みにせず、気づいた違和感を残して直すための仕組みです"] },
+};
+function helpFor(viewId){ return HELP_TEXTS[viewId] || null; }
+function openHelp(viewId){
+  const area = areaById(viewId);
+  const h = helpFor(viewId);
+  const title = area ? area.name : viewId;
+  if (!h){
+    openSheet(`<h3 class="sect" style="margin-top:0">ヘルプ ― ${esc(title)}</h3>
+    <p class="muted">この画面のヘルプはまだ用意されていません。</p>
+    <div class="rowflex" style="margin-top:12px"><button class="btn ghost" onclick="closeSheet()">閉じる</button></div>`);
+    return;
+  }
+  openSheet(`
+    <h3 class="sect" style="margin-top:0">ヘルプ ― ${esc(title)}</h3>
+    <h3 class="sect">この画面でできること</h3>
+    <ul>${h.can.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>
+    <h3 class="sect">操作の手順</h3>
+    <ol>${h.steps.map(x=>`<li>${esc(x)}</li>`).join("")}</ol>
+    ${h.notes && h.notes.length ? `<h3 class="sect">注意点</h3><ul>${h.notes.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+    <div class="rowflex" style="margin-top:12px">
+      <button class="btn ghost" id="helpClose">閉じる</button>
+      <button class="btn small" id="helpIndex">ヘルプ目次を開く</button>
+    </div>`);
+  document.getElementById("helpClose").onclick = ()=>closeSheet();
+  document.getElementById("helpIndex").onclick = ()=>{ closeSheet(); state.view="helpindex"; render(); };
+}
+
 // ===== 状態 =====
-const APP_VERSION = "2.0.0";
+const APP_VERSION = "3.0.0";
 const SETTINGS_KEY = "kyomunote.settings.v1";
 const KEYCHECK_PLAIN = "KyomuNote-KeyCheck-v1";
 const state = {
@@ -951,6 +1465,11 @@ const state = {
   selectedStudentId: null, selectedTermId: null,
   checkStudentId: null, seatKind: "normal", seatPlanId: null, seatEditMode: false,
   seatSwapMode: false, seatSwapFirst: null, gradesTab: "score",
+  // 第3期
+  l3: { active: false, lastActive: 0 },
+  selectedDutyId: null, selectedClubId: null, guidanceCaseId: null, guidanceStudentId: null,
+  commentsDocKind: "report", commentsStudentId: null, commentsIncludeL3: false,
+  helpQuery: "", _renderedView: null, docTemplatesCache: [],
 };
 window.__KYOMU__ = { db: KyomuDB, logic: LOGIC, state };
 
@@ -1021,7 +1540,7 @@ async function decryptMerge(rec){
 async function putEnc(store, plain, body){
   if (!state.key) throw new Error("鍵がありません（ロック中です）");
   const enc = await encryptRecord(state.key, body || {});
-  const rec = Object.assign({}, plain, { enc, level: 2, updatedAt: new Date().toISOString() });
+  const rec = Object.assign({}, plain, { enc, level: plain.level != null ? plain.level : 2, updatedAt: new Date().toISOString() });
   await dbPut(store, rec);
   return rec;
 }
@@ -1044,6 +1563,102 @@ async function getEncByIndex(store, idx, q){
 window.__KYOMU__.crypto = { encryptRecord, decryptRecord };
 window.__KYOMU__.enc = { putEnc, getEnc, getAllEnc, getEncByIndex };
 
+// ===== 第3期：Level 3 セッション（再認証・設計 §5.1）=====
+// セッションはメモリ上（state.l3）にだけ持つ。ストレージには書かない。
+function l3IdleMinutes(){ const v = Number(settings().l3IdleMin); return v>=1 && v<=30 ? v : L3_IDLE_DEFAULT_MIN; }
+function l3IsActive(){
+  if (!state.l3.active) return false;
+  if (!l3SessionActive(state.l3, Date.now(), l3IdleMinutes())){ state.l3.active = false; state.l3.lastActive = 0; return false; }
+  return true;
+}
+function l3Touch(){ if (state.l3.active) state.l3.lastActive = Date.now(); }
+function endL3Session(){ state.l3.active = false; state.l3.lastActive = 0; }
+// PIN再入力シート。成功したら true、やめたら false を返す。
+function ensureL3(){
+  if (l3IsActive()){ l3Touch(); return Promise.resolve(true); }
+  if (state.privacyOn){ toast("プライバシーモード中は Level 3 を開けません"); return Promise.resolve(false); }
+  const sec = state.security;
+  if (sec && sec.waitUntil && Date.now() < sec.waitUntil){
+    toast("PINの待機時間中です。しばらく待ってから開いてください");
+    return Promise.resolve(false);
+  }
+  return new Promise((resolve)=>{
+    openSheet(`
+      <h3 class="sect" style="margin-top:0">🔒 Level 3 の記録を開きます</h3>
+      <p>面談・保護者連絡・配慮事項・生徒指導の記録は最重要区分（Level 3）です。開くには PIN の再入力が必要です。</p>
+      <p class="muted">再入力後は、画面を離れる・しばらく操作しない・プライバシーモードを入れる・全体がロックされる、のいずれかで自動的に閉じます。</p>
+      <label class="f">PIN（4〜6桁）</label>
+      <input class="t" id="l3Pin" type="password" inputmode="numeric" maxlength="6" style="font-size:24px;max-width:220px">
+      <div class="lockmsg" id="l3PinMsg"></div>
+      <div class="rowflex" style="margin-top:12px">
+        <button class="btn gold" id="l3PinOk">照合して開く</button>
+        <button class="btn ghost" id="l3PinCancel">やめる</button></div>`);
+    document.getElementById("l3PinCancel").onclick = ()=>{ closeSheet(); resolve(false); };
+    document.getElementById("l3PinOk").onclick = async ()=>{
+      const pin = document.getElementById("l3Pin").value;
+      if (!isValidPin(pin)){ document.getElementById("l3PinMsg").textContent = "PINは4〜6桁の数字です。"; return; }
+      const key = await deriveKey(pin, sec.salt, sec.iterations);
+      const ok = await verifyKeyCheck(key, sec.keyCheck);
+      if (ok){
+        sec.failCount = 0; sec.waitUntil = 0; await dbPut("meta", sec);
+        state.l3 = { active: true, lastActive: Date.now() };
+        closeSheet(); resolve(true);
+      } else {
+        sec.failCount = (sec.failCount||0) + 1;
+        const wait = pinWaitSeconds(sec.failCount);
+        sec.waitUntil = wait > 0 ? Date.now() + wait*1000 : 0;
+        await dbPut("meta", sec);
+        document.getElementById("l3PinMsg").textContent = wait > 0
+          ? `PINが違います。${wait}秒の待機時間が発生しました。`
+          : "PINが違います。もう一度入力してください。";
+      }
+    };
+  });
+}
+window.__KYOMU__.p3 = { l3IsActive, endL3Session, ensureL3, HELP_TEXTS, openHelp };
+window.__KYOMU__.speech = { speakText, stopSpeech, speakScoreConfirm, scoreReadbackText };
+
+// ===== 第3期：定型文（クイック入力・設計 §4.3）=====
+const PHRASE_CATEGORIES = ["所見", "連絡", "会議", "部活", "その他"];
+function getPhrases(){ const p = settings().phrases; return Array.isArray(p) ? p : []; }
+function savePhrases(list){ saveSettings({ phrases: list }); }
+function phraseBtnHtml(targetId){
+  return `<button class="btn small ghost" type="button" data-phrase-target="${targetId}">定型文</button>`;
+}
+function openPhraseSheet(targetId){
+  const ta = document.getElementById(targetId);
+  if (!ta){ toast("入力欄が見つかりません"); return; }
+  const list = getPhrases().slice().sort((a,b)=> (b.lastUsed||0)-(a.lastUsed||0));
+  openSheet(`
+    <h3 class="sect" style="margin-top:0">定型文を選ぶ</h3>
+    ${list.length ? list.map(p=>`<div class="listitem" data-phrase-id="${p.id}"><span class="chip">${esc(p.category||"その他")}</span><br>${esc(p.text)}</div>`).join("")
+      : `<p class="muted">定型文はまだ登録されていません。設定画面の「定型文の管理」から追加できます。</p>`}
+    <div class="rowflex" style="margin-top:12px">
+      <button class="btn ghost" id="phCancel">閉じる</button>
+      <button class="btn small" id="phSettings">設定で定型文を編集</button></div>`);
+  document.getElementById("phCancel").onclick = ()=>closeSheet();
+  document.getElementById("phSettings").onclick = ()=>{ closeSheet(); state.view="settings"; render(); };
+  document.querySelectorAll("[data-phrase-id]").forEach(el=>el.onclick = ()=>{
+    const p = getPhrases().find(x=>x.id===el.dataset.phraseId);
+    if (!p) return;
+    const phrases = getPhrases();
+    const rec = phrases.find(x=>x.id===p.id);
+    if (rec){ rec.lastUsed = Date.now(); savePhrases(phrases); }
+    closeSheet();
+    ta.focus();
+    const start = ta.selectionStart != null ? ta.selectionStart : ta.value.length;
+    const end = ta.selectionEnd != null ? ta.selectionEnd : ta.value.length;
+    if (ta.setRangeText) ta.setRangeText(p.text, start, end, "end");
+    else ta.value = ta.value.slice(0,start) + p.text + ta.value.slice(end);
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
+    toast("定型文を挿入しました");
+  });
+}
+document.addEventListener("click", (e)=>{
+  const b = e.target && e.target.closest ? e.target.closest("[data-phrase-target]") : null;
+  if (b) openPhraseSheet(b.dataset.phraseTarget);
+});
+
 async function createSecurity(pin){
   const salt = b64encode(crypto.getRandomValues(new Uint8Array(16)).buffer);
   const iterations = 600000;
@@ -1057,6 +1672,7 @@ async function createSecurity(pin){
 // ===== ロック =====
 let pinBuffer = "";
 function showLock(msg){
+  endL3Session();
   state.unlocked = false; state.key = null;
   document.getElementById("appHeader").classList.add("hidden");
   document.getElementById("viewRoot").classList.add("hidden");
@@ -1109,15 +1725,22 @@ window.__KYOMU_ON_VERSIONCHANGE__ = function(){
 };
 
 // 自動ロック
-function touchActivity(){ state.lastActive = Date.now(); }
+function touchActivity(){ state.lastActive = Date.now(); l3Touch(); }
 ["pointerdown","keydown","input","scroll","touchstart"].forEach(ev =>
   document.addEventListener(ev, touchActivity, { passive:true }));
 setInterval(()=>{
   if (state.unlocked && shouldAutoLock(state.lastActive, autoLockMinutes())) lockApp("無操作のため自動ロックしました。");
+  // Level 3 セッションの無操作終了（全体の自動ロックとは独立・設計 §5.1）
+  if (state.l3.active && !l3SessionActive(state.l3, Date.now(), l3IdleMinutes())){
+    endL3Session();
+    if (state.view==="guidance" || state.view==="student" || state.view==="comments") render();
+  }
 }, 5000);
 document.addEventListener("visibilitychange", ()=>{
   if (document.hidden){ state.hiddenAt = Date.now(); }
   else if (state.hiddenAt){
+    // Level 3 セッションは復帰時点で無条件に終了する（設計 §5.1 の意図的な強化）
+    if (state.l3.active){ endL3Session(); if (state.view==="guidance" || state.view==="student" || state.view==="comments") render(); }
     if (state.unlocked && shouldLockAfterHidden(state.hiddenAt, autoLockMinutes())) lockApp("離席時間が長いため自動ロックしました。");
     state.hiddenAt = null; touchActivity();
   }
@@ -1164,6 +1787,8 @@ async function loadYearData(){
     const ms = await getMembershipsByGroup(g.id);
     for (const m of ms) state.memberships.push(m);
   }
+  // 第3期：所見テンプレート（カスタム分）
+  state.docTemplatesCache = await dbGetAll("docTemplates");
 }
 function studentById(id){ return state.students.find(x=>x.id===id) || null; }
 function groupMembers(groupId){
@@ -1208,9 +1833,12 @@ function updatePrivacyBtn(){
   b.classList.toggle("privacy-on", state.privacyOn);
 }
 document.getElementById("privacyBtn").addEventListener("click", ()=>{
-  state.privacyOn = !state.privacyOn; updatePrivacyBtn(); render();
-  toast(state.privacyOn ? "プライバシーモード ON（自由記述を伏せています）" : "プライバシーモード OFF");
+  state.privacyOn = !state.privacyOn;
+  if (state.privacyOn) endL3Session(); // Level 3 セッションはプライバシーONで即終了（設計 §5.1）
+  updatePrivacyBtn(); render();
+  toast(state.privacyOn ? "プライバシーモード ON（自由記述を伏せ、Level 3 は表示しません）" : "プライバシーモード OFF");
 });
+document.getElementById("helpBtn").addEventListener("click", ()=>openHelp(state.view));
 document.getElementById("lockBtn").addEventListener("click", ()=>lockApp());
 document.querySelectorAll("[data-nav]").forEach(b=>b.addEventListener("click", ()=>{
   state.view = b.dataset.nav; render();
@@ -1218,6 +1846,10 @@ document.querySelectorAll("[data-nav]").forEach(b=>b.addEventListener("click", (
 
 // ===== 描画ルーター =====
 function render(){
+  // Level 3 を含む画面から離れたらセッションを終了する（設計 §5.1）
+  const L3_VIEWS = ["guidance", "student", "comments"];
+  if (state._renderedView && state._renderedView !== state.view && L3_VIEWS.includes(state._renderedView)) endL3Session();
+  state._renderedView = state.view;
   document.querySelectorAll("[data-nav]").forEach(b=>b.classList.toggle("on", b.dataset.nav===state.view));
   const y = currentYear();
   document.getElementById("headerYear").textContent = y ? `${y.id}年度` : "";
@@ -1239,6 +1871,13 @@ function render(){
   else if (state.view==="student") renderStudent(root);
   else if (state.view==="grades") renderGrades(root);
   else if (state.view==="progress") renderProgress(root);
+  else if (state.view==="guidance") renderGuidance(root);
+  else if (state.view==="comments") renderComments(root);
+  else if (state.view==="duties") renderDuties(root);
+  else if (state.view==="club") renderClub(root);
+  else if (state.view==="todos") renderTodos(root);
+  else if (state.view==="helpindex") renderHelpIndex(root);
+  else if (state.view==="review") renderReview(root);
 }
 
 // ===== 週案ビュー =====
@@ -1497,7 +2136,9 @@ async function renderHome(root){
   const nextCell = cells.find(c=>c.period>=nowP && (c.base || c.lesson)) || cells.find(c=>c.base || c.lesson) || null;
   const evs = eventsOnDate(state.eventsCache, today).filter(isRealEvent);
   const dn = dayNoteOf(today);
-  const areaBtns = AREAS.filter(a=>a.enabled && a.showOnHome).map(a=>
+  const dueTodos = todosDueList(await getTodosByYear(state.currentYearId), today);
+  const markerCount = (await getReviewMarkersByYear(state.currentYearId)).length;
+  const areaBtns = AREAS.filter(a=>a.enabled && a.showOnHome && !(state.privacyOn && a.level3)).map(a=>
     `<button class="btn ghost" data-home-area="${a.id}" style="text-align:left;padding:18px;min-height:96px">
        <span style="font-size:24px">${a.icon||""} ${esc(a.name)}</span><br><span class="muted" style="font-size:14px">${esc(a.desc||"")}</span>
      </button>`).join("");
@@ -1513,11 +2154,23 @@ async function renderHome(root){
       <button class="btn small" id="homeGoToday">📍 今日の画面を開く</button>
       <button class="btn small ghost" id="homeGoDay">📝 今日の日エリア</button>
     </div>
+    ${dueTodos.length ? `<div class="card" style="border-color:var(--gold)"><h3 class="sect" style="margin-top:0">📌 今日までのToDo（${dueTodos.length}件）</h3>
+      ${dueTodos.slice(0,5).map(t=>`<div class="listitem" data-home-todo="${t.id}"><span class="t">${esc(state.privacyOn?mask(t.title):t.title)}</span>
+        <span class="muted">期限 ${esc(t.dueDate)} ／ 優先度 ${esc(todoPriorityLabel(t.priority))}${t.dueDate<today?" ／ ⚠ 期限超過":""}</span></div>`).join("")}
+      <button class="btn small" id="homeGoTodos">📌 ToDoをすべて見る</button></div>` : ""}
+    ${markerCount ? `<div class="card" style="border-color:var(--danger)"><h3 class="sect" style="margin-top:0">⚑ 確認待ち（${markerCount}件）</h3>
+      <p class="muted" style="margin:4px 0">成績や所見で「要確認」の印が残っています。見直しはこちらから。</p>
+      <button class="btn small" id="homeGoReview">⚑ 確認待ち一覧を開く</button></div>` : ""}
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px">${areaBtns}</div>
     <p class="muted">カレンダーのコマ枠も入口の1つです。ホーム・今日・講座・カレンダー、どの入口からも同じ授業記録エリア／日エリアへ届きます。</p>`;
   root.querySelectorAll("[data-home-area]").forEach(b=>b.addEventListener("click", ()=>{ state.view = b.dataset.homeArea; render(); }));
   document.getElementById("homeGoToday").onclick = ()=>{ state.view="today"; render(); };
   document.getElementById("homeGoDay").onclick = ()=>{ state.selectedDate = today; state.view="day"; render(); };
+  const hgt = document.getElementById("homeGoTodos");
+  if (hgt) hgt.onclick = ()=>{ state.view="todos"; render(); };
+  const hgr = document.getElementById("homeGoReview");
+  if (hgr) hgr.onclick = ()=>{ state.view="review"; render(); };
+  root.querySelectorAll("[data-home-todo]").forEach(el=>el.onclick=()=>{ state.view="todos"; render(); });
   if (nextCell){
     document.getElementById("homeNextLesson").onclick = ()=>{ state.selectedDate=today; state.selectedPeriod=nextCell.period; state.view="lesson"; render(); };
     document.getElementById("homeNextSheet").onclick = ()=>openSlotSheet(today, nextCell.period);
@@ -1542,11 +2195,15 @@ async function renderToday(root){
   const nowP = currentPeriodCode();
   const evs = eventsOnDate(state.eventsCache, today).filter(isRealEvent);
   const dn = dayNoteOf(today);
+  const dueTodos = todosDueList(await getTodosByYear(state.currentYearId), today);
   root.innerHTML = `
     <div class="rowflex"><button class="btn small ghost" id="tHome">🏠 ホーム</button>
     <button class="btn small ghost" id="tDay">📝 今日の日エリア</button>
     <button class="btn small ghost" id="tWeek">🗓 週案で見る</button></div>
     <h2 class="viewtitle">今日 ― ${esc(today)}（${WEEKDAY_LABELS[dayOfWeek(today)]}）</h2>
+    ${dueTodos.length ? `<div class="card" style="border-color:var(--gold)"><h3 class="sect" style="margin-top:0">📌 今日までのToDo（${dueTodos.length}件）</h3>
+      ${dueTodos.slice(0,5).map(t=>`<p style="margin:4px 0"><strong>${esc(state.privacyOn?mask(t.title):t.title)}</strong> <span class="muted">期限 ${esc(t.dueDate)} ／ 優先度 ${esc(todoPriorityLabel(t.priority))}${t.dueDate<today?" ／ ⚠ 期限超過":""}</span></p>`).join("")}
+      <button class="btn small" id="tGoTodos">📌 ToDoを開く</button></div>` : ""}
     <div class="card"><h3 class="sect" style="margin-top:0">今日の一言メモ（日メモ）</h3>
       ${dn?`<p>✎ ${esc(mask(dn.title))}${dn.memo?`<br><span class="muted">${esc(mask(dn.memo))}</span>`:""}</p>`:`<p class="muted">まだ書かれていません。</p>`}
       <button class="btn small" id="tEditNote">日エリアで編集</button></div>
@@ -1570,6 +2227,8 @@ async function renderToday(root){
         </div>
       </div>`).join("")}`;
   document.getElementById("tHome").onclick = ()=>{ state.view="home"; render(); };
+  const tgt = document.getElementById("tGoTodos");
+  if (tgt) tgt.onclick = ()=>{ state.view="todos"; render(); };
   document.getElementById("tDay").onclick = ()=>{ state.selectedDate=today; state.view="day"; render(); };
   document.getElementById("tEditNote").onclick = ()=>{ state.selectedDate=today; state.view="day"; render(); };
   document.getElementById("tWeek").onclick = ()=>{ state.weekMonday = mondayOfWeek(today); state.view="week"; render(); };
@@ -1714,9 +2373,10 @@ async function renderDay(root){
 }
 
 // ===== 行事編集シート =====
-function openEventSheet(ev, defaultDate){
+function openEventSheet(ev, defaultDate, preset){
   const isNew = !ev;
   ev = ev || { id: uuid(), yearId: state.currentYearId, title:"", startDate: defaultDate||state.selectedDate, endDate: defaultDate||state.selectedDate, category:"event", memo:"", level:1 };
+  if (isNew && preset){ if (preset.category) ev.category = preset.category; if (preset.groupId) ev.groupId = preset.groupId; }
   openSheet(`
     <h3 class="sect" style="margin-top:0">${isNew?"行事を追加":"行事を編集"}</h3>
     <label class="f">タイトル</label><input class="t" id="evTitle" value="${esc(ev.title)}">
@@ -1738,6 +2398,7 @@ function openEventSheet(ev, defaultDate){
     ev.category = document.getElementById("evCat").value;
     ev.memo = document.getElementById("evMemo").value;
     ev.yearId = state.currentYearId; ev.level = 1;
+    if (ev.groupId === undefined) delete ev.groupId;
     await dbPut("events", ev);
     const i = state.eventsCache.findIndex(e=>e.id===ev.id);
     if (i>=0) state.eventsCache[i]=ev; else state.eventsCache.push(ev);
@@ -1922,9 +2583,48 @@ async function renderSettings(root){
       <label class="f"><input type="checkbox" id="csvEnabled" ${s.csvEnabled?"checked":""} style="width:22px;height:22px;vertical-align:middle"> 成績・集計の転記用一覧で CSV 出力を有効にする（既定は OFF）</label>
       <p class="muted">CSV は平文のファイルとして端末に残ります。有効化には PIN の再入力が必要です。バックアップ用途には使わないでください（暗号化アーカイブは第4期で扱います）。</p>
     </div>
+    <div class="card"><h3 class="sect" style="margin-top:0">読み上げ（点数の読み返し・所見チェック）</h3>
+      <label class="f"><input type="checkbox" id="scoreReadback" ${s.scoreReadback!==false?"checked":""} style="width:22px;height:22px;vertical-align:middle"> 点数の読み上げ確認を使う（スコア入力画面でも切り替えできます）</label>
+      <label class="f">読み上げの速さ</label>
+      <select class="t" id="speechRate" style="max-width:240px">
+        <option value="1" ${Number(s.speechRate||1)===1?"selected":""}>標準</option>
+        <option value="1.15" ${Number(s.speechRate||1)===1.15?"selected":""}>やや速め</option>
+        <option value="1.3" ${Number(s.speechRate||1)===1.3?"selected":""}>速め</option>
+      </select>
+      <div class="rowflex" style="margin-top:8px"><button class="btn small" id="speechTest">試しに読み上げる</button>
+      <button class="btn small danger" id="speechStop2">⏹ 停止</button></div>
+      <p class="muted">読み上げは端末の音声合成（日本語）を使います。音声認識は使いません。点数の読み返しは「出席番号＋点数」だけを読み、氏名は読み上げません。</p>
+    </div>
+    <div class="card"><h3 class="sect" style="margin-top:0">Level 3 セッション</h3>
+      <label class="f">再認証セッションの保持時間（無操作で自動終了）</label>
+      <select class="t" id="l3IdleSel" style="max-width:200px">${[1,2,3,5,10,15,20,30].map(m=>`<option value="${m}" ${l3IdleMinutes()===m?"selected":""}>${m}分</option>`).join("")}</select>
+      <p class="muted">Level 3（面談・保護者連絡・配慮事項・生徒指導）の画面から離れる、タブを裏に回す、プライバシーモードを ON にする、全体ロックがかかる、のいずれでもセッションは終了します。</p>
+    </div>
+    <div class="card"><h3 class="sect" style="margin-top:0">定型文（クイック入力）</h3>
+      <p class="muted">よく使う文を登録しておくと、入力欄の「定型文」ボタンからワンタップで挿入できます。この端末の設定として保存されます。</p>
+      <div id="phraseList">${getPhrases().map((p,i)=>`<div class="listitem"><span class="chip">${esc(p.category)}</span> <span class="muted">使用 ${p.used||0} 回</span>
+        <br>${esc(p.text)}<div style="margin-top:4px"><button class="btn small danger" data-phrase-del="${i}">削除</button></div></div>`).join("") || `<p class="muted">定型文はまだありません。</p>`}</div>
+      <label class="f">分類</label><select class="t" id="phCat" style="max-width:200px">${PHRASE_CATEGORIES.map(c=>`<option value="${c}">${c}</option>`).join("")}</select>
+      <label class="f">文面</label><textarea class="t" id="phText"></textarea>
+      <button class="btn small gold" id="phAdd" style="margin-top:8px">定型文を追加</button>
+    </div>
+    <div class="card"><h3 class="sect" style="margin-top:0">AI支援（ローカルAI・Ollama）</h3>
+      <label class="f"><input type="checkbox" id="aiEnabled" ${s.aiEnabled?"checked":""} style="width:22px;height:22px;vertical-align:middle"> AI支援を有効にする（既定は OFF）</label>
+      <p class="muted">対象は所見の推敲・要約・言い換え候補だけです。クラウドAIは使いません。このアプリを開いている PC で Ollama が動いているときだけ使えます（iPhone 単体では使えません）。送信前に、氏名を番号・イニシャルに置き換えた文面を必ずプレビューで確認します。Level 3 の記録は AI の対象外です。</p>
+      <label class="f">接続先（Ollama）</label><input class="t" id="aiHost" value="${esc(s.aiHost||"http://127.0.0.1:11434")}">
+      <label class="f">モデル名</label><input class="t" id="aiModel" value="${esc(s.aiModel||"")}" placeholder="例：qwen3.5:9b">
+      <div class="rowflex" style="margin-top:8px"><button class="btn small" id="aiSave">AI設定を保存</button>
+      <button class="btn small ghost" id="aiTest">接続テスト</button></div>
+      <div class="savednote" id="aiTestMsg"></div>
+      <div class="warnbox" style="margin-top:10px"><strong>PC 側の設定：</strong>ブラウザ上のアプリから Ollama に接続するには、PC で環境変数 <strong>OLLAMA_ORIGINS=*</strong> を設定して Ollama を起動し直す必要があります（このアプリが github.io から配信されるため、PC でも必要です）。</div>
+    </div>
+    <div class="card"><h3 class="sect" style="margin-top:0">ヘルプ</h3>
+      <p class="muted">各画面のヘッダーの「？ ヘルプ」ボタンから、その画面の使い方を開けます。全画面分をまとめて探すときはこちら。</p>
+      <button class="btn" id="sGoHelp">？ ヘルプ目次を開く</button>
+    </div>
     <div class="card"><h3 class="sect" style="margin-top:0">このアプリについて</h3>
-      <p>KyomuNote（デジタル教務手帳）第2期 バージョン <strong>${APP_VERSION}</strong><br>
-      <span class="muted">データはこの端末の IndexedDB（KyomuNoteDB）にのみ保存され、外部へ送信されません。</span></p>
+      <p>KyomuNote（デジタル教務手帳）第3期 バージョン <strong>${APP_VERSION}</strong><br>
+      <span class="muted">データはこの端末の IndexedDB（KyomuNoteDB）にのみ保存され、外部へ送信されません。AI支援を使う場合も、送信先は自分の PC の Ollama だけです。</span></p>
       <button class="btn gold" id="updateBtn">最新の版に更新する</button></div>`;
   document.getElementById("sHome").onclick=()=>{ state.view="home"; render(); };
   root.querySelectorAll("[data-year]").forEach(b=>b.onclick=async ()=>{
@@ -2009,6 +2709,43 @@ async function renderSettings(root){
       closeSheet(); toast("CSV出力を有効にしました"); render();
     };
   };
+  document.getElementById("scoreReadback").onchange = (e)=>{ saveSettings({ scoreReadback: e.target.checked }); toast("点数の読み上げ確認を " + (e.target.checked?"オン":"オフ") + " にしました"); };
+  document.getElementById("speechRate").onchange = (e)=>{ saveSettings({ speechRate: Number(e.target.value) }); toast("読み上げの速さを設定しました"); };
+  document.getElementById("speechTest").onclick = ()=>{ stopSpeech(); speakText("5番、85点。読み上げのテストです。"); };
+  document.getElementById("speechStop2").onclick = ()=>{ stopSpeech(); };
+  document.getElementById("l3IdleSel").onchange = (e)=>{ saveSettings({ l3IdleMin: Number(e.target.value) }); toast(`Level 3 セッションの保持を ${e.target.value} 分に設定しました`); };
+  document.getElementById("phAdd").onclick = ()=>{
+    const text = document.getElementById("phText").value.trim();
+    if (!text){ toast("文面を入力してください"); return; }
+    const list = getPhrases();
+    list.push({ id: uuid(), category: document.getElementById("phCat").value, text, used: 0, lastUsed: 0 });
+    savePhrases(list); toast("定型文を追加しました"); render();
+  };
+  root.querySelectorAll("[data-phrase-del]").forEach(b=>b.onclick = ()=>{
+    const list = getPhrases();
+    list.splice(Number(b.dataset.phraseDel), 1);
+    savePhrases(list); toast("定型文を削除しました"); render();
+  });
+  document.getElementById("aiEnabled").onchange = (e)=>{ saveSettings({ aiEnabled: e.target.checked }); toast("AI支援を " + (e.target.checked?"有効":"無効") + " にしました"); };
+  document.getElementById("aiSave").onclick = ()=>{
+    saveSettings({ aiHost: document.getElementById("aiHost").value.trim() || "http://127.0.0.1:11434", aiModel: document.getElementById("aiModel").value.trim() });
+    toast("AI設定を保存しました");
+  };
+  document.getElementById("aiTest").onclick = async ()=>{
+    const msg = document.getElementById("aiTestMsg");
+    const host = (document.getElementById("aiHost").value.trim() || "http://127.0.0.1:11434").replace(/\/+$/,"");
+    msg.textContent = "接続中…";
+    try {
+      const res = await fetch(host + "/api/tags");
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      const names = (data.models||[]).map(m=>m.name).join("、");
+      msg.textContent = "接続できました。利用可能なモデル：" + (names || "（なし）");
+    } catch(e){
+      msg.textContent = "接続できませんでした。PC で Ollama が起動しているか、OLLAMA_ORIGINS=* の設定を確認してください。（" + (e.message||e) + "）";
+    }
+  };
+  document.getElementById("sGoHelp").onclick = ()=>{ state.view = "helpindex"; render(); };
   document.getElementById("updateBtn").onclick = ()=>{
     const url = new URL(location.href); url.searchParams.set("v", Date.now());
     location.replace(url.toString());
@@ -2122,11 +2859,11 @@ function viewpointOptions(selected){
   return [`<option value="none" ${selected==="none"?"selected":""}>（観点なし）</option>`]
     .concat(VIEWPOINTS.map(v=>`<option value="${v.id}" ${selected===v.id?"selected":""}>${esc(v.label)}</option>`)).join("");
 }
-async function addObservation(studentId, courseId, lessonId, text, viewpoint){
+async function addObservation(studentId, courseId, lessonId, text, viewpoint, handoff){
   if (!text || !text.trim()){ toast("所見メモの本文を入力してください"); return false; }
   await putEnc("observations",
     { id: uuid(), studentId, courseId: courseId||null, lessonId: lessonId||null, date: todayString(), yearId: state.currentYearId },
-    { text: text.trim(), viewpoint: viewpoint||"none", source: "" });
+    { text: text.trim(), viewpoint: viewpoint||"none", source: "", handoff: !!handoff });
   return true;
 }
 async function reloadStudents(){
@@ -2163,13 +2900,13 @@ async function renderRoster(root){
   h += groups.map(g=>{
     const n = state.memberships.filter(m=>m.groupId===g.id).length;
     return `<div class="listitem" data-rgroup="${g.id}"><span class="t">${esc(g.name)}</span>
-      <span class="muted">種別：${g.kind==="course"?"講座グループ":"学級"} ／ 運用：${g.rosterMode==="initials"?"イニシャル／番号のみ":"氏名"} ／ ${n}名</span>
+      <span class="muted">種別：${g.kind==="course"?"講座グループ":(g.kind==="club"?"部活動":"学級")} ／ 運用：${g.rosterMode==="initials"?"イニシャル／番号のみ":"氏名"} ／ ${n}名</span>
       <div class="rowflex" style="margin-top:6px"><button class="btn small gold" data-rgroup-open="${g.id}">名簿を開く</button>
       <button class="btn small ghost" data-rgroup-seats="${g.id}">座席表</button></div></div>`;
   }).join("");
   h += `<div class="card"><h3 class="sect" style="margin-top:0">グループを作成</h3>
     <label class="f">名前</label><input class="t" id="rgName" placeholder="例：2年A組／数学I・選択α">
-    <label class="f">種別</label><select class="t" id="rgKind"><option value="class">学級</option><option value="course">講座グループ</option></select>
+    <label class="f">種別</label><select class="t" id="rgKind"><option value="class">学級</option><option value="course">講座グループ</option><option value="club">部活動</option></select>
     <label class="f">講座（種別が「講座グループ」のとき）</label><select class="t" id="rgCourse">${courseOptions(null)}</select>
     <label class="f">運用モード</label><select class="t" id="rgMode"><option value="full">氏名を保存する（full）</option><option value="initials">イニシャル／番号のみ（initials・氏名は保存しません）</option></select>
     <button class="btn gold" id="rgCreate" style="margin-top:12px">グループを作成</button></div>`;
@@ -2178,7 +2915,7 @@ async function renderRoster(root){
     const members = groupMembers(sel.id);
     const others = state.students.filter(st=>!state.memberships.some(m=>m.groupId===sel.id && m.studentId===st.id));
     h += `<div class="card"><h3 class="sect" style="margin-top:0">名簿編集 ― ${esc(sel.name)}</h3>
-    <p class="muted">種別：${sel.kind==="course"?"講座グループ":"学級"} ／ 運用モード：${sel.rosterMode==="initials"?"イニシャル／番号のみ":"氏名"}</p>
+    <p class="muted">種別：${sel.kind==="course"?"講座グループ":(sel.kind==="club"?"部活動":"学級")} ／ 運用モード：${sel.rosterMode==="initials"?"イニシャル／番号のみ":"氏名"}</p>
     <label class="f">運用モードの切替</label>
     <div class="rowflex"><select class="t" id="rgModeSel" style="max-width:320px">
       <option value="full" ${sel.rosterMode==="full"?"selected":""}>氏名を保存する（full）</option>
@@ -2497,7 +3234,7 @@ async function openSeatQuickPanel(group, studentId){
     <label class="f">観点タグ</label><select class="t" id="qpObsView">${viewpointOptions("none")}</select>
     <div class="rowflex" style="margin-top:12px">
       <button class="btn gold" id="qpObsAdd">所見メモを保存</button>
-      <button class="btn" id="qpGoStudent">生徒ページへ</button>
+      <button class="btn" id="qpGoStudent">カルテ（生徒ページ）へ</button>
       <button class="btn ghost" id="qpClose">閉じる</button></div>`);
   document.getElementById("qpClose").onclick = ()=>closeSheet();
   document.getElementById("qpGoStudent").onclick = ()=>{ closeSheet(); state.selectedStudentId=studentId; state.view="student"; render(); };
@@ -2789,6 +3526,167 @@ async function renderSubmissions(root){
   }
 }
 
+// ===== 第3期：カルテ記録の入力シート群 =====
+function handoffBadge(rec){ return rec && rec.handoff ? ` <span class="chip">申し送り</span>` : ""; }
+async function loadStudentRecords(store, studentId){
+  const raw = await dbGetByIndex(store, "byStudent", studentId);
+  const out = [];
+  for (const r of raw) out.push(await decryptMerge(r));
+  return out.filter(x=>!x.decryptError);
+}
+function sheetSaveRow(saveId, delId, cancelLabel){
+  return `<div class="rowflex" style="margin-top:16px">
+    <button class="btn gold" id="${saveId}">保存する</button>
+    ${delId?`<button class="btn danger" id="${delId}">削除</button>`:""}
+    <button class="btn ghost" id="ctCancel">${cancelLabel||"キャンセル"}</button></div>`;
+}
+function bindSheetCancel(){ document.getElementById("ctCancel").onclick = ()=>closeSheet(); }
+
+function openInterviewSheet(studentId, rec){
+  const isNew = !rec;
+  rec = rec || { id: uuid(), studentId, date: todayString(), yearId: state.currentYearId, level: 3,
+    kind: "two", participants: "", place: "", summary: "", agreements: "", nextSteps: "", handoff: false };
+  openSheet(`
+    <h3 class="sect" style="margin-top:0">${isNew?"面談記録を追加":"面談記録を編集"}（Level 3）</h3>
+    <div class="rowflex"><span style="flex:1">日付 <input class="t" type="date" id="ivDate" value="${esc(rec.date||todayString())}"></span>
+    <span style="flex:1">種別 <select class="t" id="ivKind">${INTERVIEW_KINDS.map(k=>`<option value="${k.id}" ${rec.kind===k.id?"selected":""}>${k.label}</option>`).join("")}</select></span></div>
+    <label class="f">参加者</label><input class="t" id="ivPart" value="${esc(rec.participants||"")}" placeholder="例：本人・母親・担任">
+    <label class="f">場所</label><input class="t" id="ivPlace" value="${esc(rec.place||"")}">
+    <label class="f">内容</label><textarea class="t" id="ivSummary">${esc(rec.summary||"")}</textarea>
+    <div class="rowflex">${phraseBtnHtml("ivSummary")}<span class="muted">キーボードのマイクで音声入力もできます</span></div>
+    <label class="f">合意事項</label><textarea class="t" id="ivAgree">${esc(rec.agreements||"")}</textarea>
+    <label class="f">次回への申し送り</label><textarea class="t" id="ivNext">${esc(rec.nextSteps||"")}</textarea>
+    <label class="f"><input type="checkbox" id="ivHandoff" ${rec.handoff?"checked":""} style="width:22px;height:22px;vertical-align:middle"> 次年度担任への申し送り対象にする</label>
+    ${isNew?`<div style="margin-top:8px"><button class="btn small ghost" id="ivDup">前回を複製</button></div>`:""}
+    ${sheetSaveRow("ivSave", isNew?null:"ivDelete")}`);
+  bindSheetCancel();
+  const dup = document.getElementById("ivDup");
+  if (dup) dup.onclick = async ()=>{
+    const list = (await loadStudentRecords("interviews", studentId)).sort((a,b)=> (a.date||"")<(b.date||"")?1:-1);
+    if (!list.length){ toast("複製できる前回の記録がありません"); return; }
+    const p = list[0];
+    document.getElementById("ivKind").value = p.kind||"two";
+    document.getElementById("ivPart").value = p.participants||"";
+    document.getElementById("ivPlace").value = p.place||"";
+    document.getElementById("ivSummary").value = p.summary||"";
+    document.getElementById("ivAgree").value = p.agreements||"";
+    document.getElementById("ivNext").value = p.nextSteps||"";
+    toast("前回の面談記録を読み込みました（日付は今日のままです）");
+  };
+  document.getElementById("ivSave").onclick = async ()=>{
+    await putEnc("interviews",
+      { id: rec.id, studentId, date: document.getElementById("ivDate").value||todayString(), yearId: state.currentYearId, level: 3 },
+      { kind: document.getElementById("ivKind").value, participants: document.getElementById("ivPart").value,
+        place: document.getElementById("ivPlace").value, summary: document.getElementById("ivSummary").value,
+        agreements: document.getElementById("ivAgree").value, nextSteps: document.getElementById("ivNext").value,
+        handoff: document.getElementById("ivHandoff").checked });
+    closeSheet(); toast("面談記録を保存しました"); render();
+  };
+  const del = document.getElementById("ivDelete");
+  if (del) del.onclick = async ()=>{ await dbDelete("interviews", rec.id); closeSheet(); toast("削除しました"); render(); };
+}
+
+function openContactSheet(studentId, rec){
+  const isNew = !rec;
+  rec = rec || { id: uuid(), studentId, date: todayString(), yearId: state.currentYearId, groupId: null, level: 3,
+    channel: "phone", counterpart: "", subject: "", content: "", result: "", context: "homeroom", handoff: false };
+  openSheet(`
+    <h3 class="sect" style="margin-top:0">${isNew?"保護者連絡を追加":"保護者連絡を編集"}（Level 3）</h3>
+    <p class="muted">学級・教科・部活のどの文脈で記録しても、この生徒のカルテに同じ1件として残ります。</p>
+    <div class="rowflex"><span style="flex:1">日付 <input class="t" type="date" id="cnDate" value="${esc(rec.date||todayString())}"></span>
+    <span style="flex:1">手段 <select class="t" id="cnChannel">${CONTACT_CHANNELS.map(k=>`<option value="${k.id}" ${rec.channel===k.id?"selected":""}>${k.label}</option>`).join("")}</select></span>
+    <span style="flex:1">文脈 <select class="t" id="cnContext">${CONTACT_CONTEXTS.map(k=>`<option value="${k.id}" ${rec.context===k.id?"selected":""}>${k.label}</option>`).join("")}</select></span></div>
+    <label class="f">相手（父・母など）</label><input class="t" id="cnCounter" value="${esc(rec.counterpart||"")}">
+    <label class="f">用件</label><input class="t" id="cnSubject" value="${esc(rec.subject||"")}">
+    <label class="f">内容</label><textarea class="t" id="cnContent">${esc(rec.content||"")}</textarea>
+    <div class="rowflex">${phraseBtnHtml("cnContent")}</div>
+    <label class="f">対応結果</label><textarea class="t" id="cnResult">${esc(rec.result||"")}</textarea>
+    <label class="f">関係グループ（任意）</label><select class="t" id="cnGroup"><option value="">（なし）</option>${state.groups.map(g=>`<option value="${g.id}" ${rec.groupId===g.id?"selected":""}>${esc(g.name)}</option>`).join("")}</select>
+    <label class="f"><input type="checkbox" id="cnHandoff" ${rec.handoff?"checked":""} style="width:22px;height:22px;vertical-align:middle"> 次年度担任への申し送り対象にする</label>
+    ${isNew?`<div style="margin-top:8px"><button class="btn small ghost" id="cnDup">前回を複製</button></div>`:""}
+    ${sheetSaveRow("cnSave", isNew?null:"cnDelete")}`);
+  bindSheetCancel();
+  const dup = document.getElementById("cnDup");
+  if (dup) dup.onclick = async ()=>{
+    const list = (await loadStudentRecords("contacts", studentId)).sort((a,b)=> (a.date||"")<(b.date||"")?1:-1);
+    if (!list.length){ toast("複製できる前回の記録がありません"); return; }
+    const p = list[0];
+    document.getElementById("cnChannel").value = p.channel||"phone";
+    document.getElementById("cnContext").value = p.context||"homeroom";
+    document.getElementById("cnCounter").value = p.counterpart||"";
+    document.getElementById("cnSubject").value = p.subject||"";
+    document.getElementById("cnContent").value = p.content||"";
+    document.getElementById("cnResult").value = p.result||"";
+    toast("前回の連絡記録を読み込みました（日付は今日のままです）");
+  };
+  document.getElementById("cnSave").onclick = async ()=>{
+    await putEnc("contacts",
+      { id: rec.id, studentId, date: document.getElementById("cnDate").value||todayString(), yearId: state.currentYearId,
+        groupId: document.getElementById("cnGroup").value || null, level: 3 },
+      { channel: document.getElementById("cnChannel").value, counterpart: document.getElementById("cnCounter").value,
+        subject: document.getElementById("cnSubject").value, content: document.getElementById("cnContent").value,
+        result: document.getElementById("cnResult").value, context: document.getElementById("cnContext").value,
+        handoff: document.getElementById("cnHandoff").checked });
+    closeSheet(); toast("保護者連絡を保存しました"); render();
+  };
+  const del = document.getElementById("cnDelete");
+  if (del) del.onclick = async ()=>{ await dbDelete("contacts", rec.id); closeSheet(); toast("削除しました"); render(); };
+}
+
+function openCareNoteSheet(studentId, rec){
+  const isNew = !rec;
+  rec = rec || { id: uuid(), studentId, yearId: state.currentYearId, level: 3,
+    category: "reasonable", detail: "", handling: "", source: "", active: true, handoff: false };
+  openSheet(`
+    <h3 class="sect" style="margin-top:0">${isNew?"配慮事項を追加":"配慮事項を編集"}（Level 3）</h3>
+    <label class="f">区分</label><select class="t" id="crCat">${CARE_CATEGORIES.map(k=>`<option value="${k.id}" ${rec.category===k.id?"selected":""}>${k.label}</option>`).join("")}</select>
+    <label class="f">詳細</label><textarea class="t" id="crDetail">${esc(rec.detail||"")}</textarea>
+    <div class="rowflex">${phraseBtnHtml("crDetail")}</div>
+    <label class="f">対応方法</label><textarea class="t" id="crHandling">${esc(rec.handling||"")}</textarea>
+    <label class="f">情報源・根拠</label><input class="t" id="crSource" value="${esc(rec.source||"")}" placeholder="例：保護者からの申告">
+    <label class="f"><input type="checkbox" id="crActive" ${rec.active!==false?"checked":""} style="width:22px;height:22px;vertical-align:middle"> 現在有効</label>
+    <label class="f"><input type="checkbox" id="crHandoff" ${rec.handoff?"checked":""} style="width:22px;height:22px;vertical-align:middle"> 次年度担任への申し送り対象にする</label>
+    ${sheetSaveRow("crSave", isNew?null:"crDelete")}`);
+  bindSheetCancel();
+  document.getElementById("crSave").onclick = async ()=>{
+    await putEnc("careNotes",
+      { id: rec.id, studentId, yearId: state.currentYearId, level: 3 },
+      { category: document.getElementById("crCat").value, detail: document.getElementById("crDetail").value,
+        handling: document.getElementById("crHandling").value, source: document.getElementById("crSource").value,
+        active: document.getElementById("crActive").checked, handoff: document.getElementById("crHandoff").checked });
+    closeSheet(); toast("配慮事項を保存しました"); render();
+  };
+  const del = document.getElementById("crDelete");
+  if (del) del.onclick = async ()=>{ await dbDelete("careNotes", rec.id); closeSheet(); toast("削除しました"); render(); };
+}
+
+function openCareerSheet(studentId, rec){
+  const isNew = !rec;
+  rec = rec || { id: uuid(), studentId, date: todayString(), yearId: state.currentYearId, level: 2,
+    kind: "hope", schoolName: "", department: "", note: "", handoff: false };
+  openSheet(`
+    <h3 class="sect" style="margin-top:0">${isNew?"進路の記録を追加":"進路の記録を編集"}</h3>
+    <div class="rowflex"><span style="flex:1">日付 <input class="t" type="date" id="caDate" value="${esc(rec.date||todayString())}"></span>
+    <span style="flex:1">種別 <select class="t" id="caKind">${CAREER_KINDS.map(k=>`<option value="${k.id}" ${rec.kind===k.id?"selected":""}>${k.label}</option>`).join("")}</select></span></div>
+    <label class="f">志望校名</label><input class="t" id="caSchool" value="${esc(rec.schoolName||"")}">
+    <label class="f">学部・学科・コース</label><input class="t" id="caDept" value="${esc(rec.department||"")}">
+    <label class="f">メモ</label><textarea class="t" id="caNote">${esc(rec.note||"")}</textarea>
+    <div class="rowflex">${phraseBtnHtml("caNote")}</div>
+    <label class="f"><input type="checkbox" id="caHandoff" ${rec.handoff?"checked":""} style="width:22px;height:22px;vertical-align:middle"> 次年度担任への申し送り対象にする</label>
+    ${sheetSaveRow("caSave", isNew?null:"caDelete")}`);
+  bindSheetCancel();
+  document.getElementById("caSave").onclick = async ()=>{
+    await putEnc("careerRecords",
+      { id: rec.id, studentId, date: document.getElementById("caDate").value||todayString(), yearId: state.currentYearId, level: 2 },
+      { kind: document.getElementById("caKind").value, schoolName: document.getElementById("caSchool").value,
+        department: document.getElementById("caDept").value, note: document.getElementById("caNote").value,
+        handoff: document.getElementById("caHandoff").checked });
+    closeSheet(); toast("進路の記録を保存しました"); render();
+  };
+  const del = document.getElementById("caDelete");
+  if (del) del.onclick = async ()=>{ await dbDelete("careerRecords", rec.id); closeSheet(); toast("削除しました"); render(); };
+}
+
 // ===== 生徒ページ（student）=====
 async function renderStudent(root){
   let st = state.selectedStudentId ? studentById(state.selectedStudentId) : null;
@@ -2852,13 +3750,57 @@ async function renderStudent(root){
     for (const v of VIEWPOINTS.concat([{id:"none",label:"（観点なし）"}])){
       const list = obs.filter(o=>!o.decryptError && (o.viewpoint||"none")===v.id);
       if (!list.length) continue;
-      h += `<h3 class="sect">${esc(v.label)}（${list.length}件）</h3>` + list.map(o=>`<div class="listitem" style="cursor:default"><span class="muted">${esc(o.date||"")}</span><br>${esc(mask2(o.text||""))}</div>`).join("");
+      h += `<h3 class="sect">${esc(v.label)}（${list.length}件）</h3>` + list.map(o=>`<div class="listitem" style="cursor:default"><span class="muted">${esc(o.date||"")}</span>${handoffBadge(o)}<br>${esc(mask2(o.text||""))}</div>`).join("");
     }
     if (!obs.length) h += `<p class="muted">所見メモはまだありません。</p>`;
     h += `<label class="f">所見メモを追加</label><textarea class="t" id="stObsText"></textarea>
+    <div class="rowflex">${phraseBtnHtml("stObsText")}</div>
     <label class="f">観点タグ</label><select class="t" id="stObsView">${viewpointOptions("none")}</select>
     <label class="f">講座（任意）</label><select class="t" id="stObsCourse"><option value="">（なし）</option>${myCourses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>
+    <label class="f"><input type="checkbox" id="stObsHandoff" style="width:22px;height:22px;vertical-align:middle"> 次年度担任への申し送り対象にする</label>
     <div style="margin-top:8px"><button class="btn gold" id="stObsAdd">追加する</button></div></div>`;
+
+    // ===== 第3期：カルテ拡張 =====
+    const stMarkers = await loadMarkers();
+    const stMarker = findMarker(stMarkers, st.id, "student", st.id);
+    h += `<div class="rowflex" style="margin:6px 0 14px">
+      <button class="btn gold" id="stGoComments">✏️ この生徒の所見を作る</button>
+      <button class="btn ghost" id="stGoGuidance">🛡 生徒指導（案件）へ</button>
+      <button class="btn ${stMarker?"danger":"ghost"}" id="stMarker">${stMarker?"⚑ 要確認（付いています）":"⚑ 要確認マーカー"}</button></div>
+    ${stMarker && stMarker.memo?`<p class="muted">⚑ メモ：${esc(state.privacyOn?mask(stMarker.memo):stMarker.memo)}</p>`:""}`;
+
+    // 進路の推移（Level 2）
+    const careers = (await loadStudentRecords("careerRecords", st.id)).sort((a,b)=> (a.date||"")<(b.date||"")?1:-1);
+    h += `<div class="card"><h3 class="sect" style="margin-top:0">進路の推移</h3>
+    ${careers.map(r=>`<div class="listitem" data-career="${r.id}"><span class="muted">${esc(r.date||"")}</span> <span class="chip">${esc(careerKindLabel(r.kind))}</span>${handoffBadge(r)}
+      <br><span class="t">${esc(mask2([r.schoolName, r.department].filter(Boolean).join(" ") || "（志望校未記入）"))}</span>
+      ${r.note?`<br>${esc(mask2(r.note))}`:""}</div>`).join("") || `<p class="muted">進路の記録はまだありません。</p>`}
+    <button class="btn small gold" id="stCareerAdd">＋ 進路の記録を追加</button></div>`;
+
+    // Level 3 の節（面談・連絡・配慮）：プライバシーONでは見出しごと出さない
+    if (!state.privacyOn){
+      if (!l3IsActive()){
+        h += `<div class="card"><h3 class="sect" style="margin-top:0">🔒 面談・保護者連絡・配慮事項（Level 3）</h3>
+        <p class="muted">最重要区分のためロック中です。件数も表示されません。開くには PIN の再入力が必要です。</p>
+        <button class="btn gold" id="stL3Unlock">🔒 Level 3 を開く（PIN再入力）</button></div>`;
+      } else {
+        const interviews = (await loadStudentRecords("interviews", st.id)).sort((a,b)=> (a.date||"")<(b.date||"")?1:-1);
+        const contacts = (await loadStudentRecords("contacts", st.id)).sort((a,b)=> (a.date||"")<(b.date||"")?1:-1);
+        const careNotes = await loadStudentRecords("careNotes", st.id);
+        h += `<div class="card" style="border-color:var(--danger)"><h3 class="sect" style="margin-top:0">面談記録（Level 3・開いています）</h3>
+        ${interviews.map(r=>`<div class="listitem" data-iv="${r.id}"><span class="muted">${esc(r.date||"")}</span> <span class="chip">${esc(interviewKindLabel(r.kind))}</span>${handoffBadge(r)}
+          <br>${esc(r.summary||"")}${r.nextSteps?`<br><span class="muted">申し送り：${esc(r.nextSteps)}</span>`:""}</div>`).join("") || `<p class="muted">面談記録はありません。</p>`}
+        <button class="btn small gold" id="stIvAdd">＋ 面談記録を追加</button></div>`;
+        h += `<div class="card" style="border-color:var(--danger)"><h3 class="sect" style="margin-top:0">保護者連絡ログ（Level 3）</h3>
+        ${contacts.map(r=>`<div class="listitem" data-cn="${r.id}"><span class="muted">${esc(r.date||"")}</span> <span class="chip">${esc(contactChannelLabel(r.channel))}／${esc(contactContextLabel(r.context))}</span>${handoffBadge(r)}
+          <br><span class="t">${esc(r.subject||"（用件なし）")}</span>${r.content?`<br>${esc(r.content)}`:""}${r.result?`<br><span class="muted">対応結果：${esc(r.result)}</span>`:""}</div>`).join("") || `<p class="muted">連絡記録はありません。</p>`}
+        <button class="btn small gold" id="stCnAdd">＋ 保護者連絡を追加</button></div>`;
+        h += `<div class="card" style="border-color:var(--danger)"><h3 class="sect" style="margin-top:0">配慮事項（Level 3）</h3>
+        ${careNotes.map(r=>`<div class="listitem" data-cr="${r.id}"><span class="chip">${esc(careCategoryLabel(r.category))}</span> ${r.active===false?`<span class="muted">（終了）</span>`:""}${handoffBadge(r)}
+          <br>${esc(r.detail||"")}${r.handling?`<br><span class="muted">対応：${esc(r.handling)}</span>`:""}</div>`).join("") || `<p class="muted">配慮事項はありません。</p>`}
+        <button class="btn small gold" id="stCrAdd">＋ 配慮事項を追加</button></div>`;
+      }
+    }
   }
   root.innerHTML = h;
   bindHome("stHome");
@@ -2867,9 +3809,45 @@ async function renderStudent(root){
   if (st){
     document.getElementById("stObsAdd").onclick = async ()=>{
       const ok = await addObservation(st.id, document.getElementById("stObsCourse").value||null, null,
-        document.getElementById("stObsText").value, document.getElementById("stObsView").value);
+        document.getElementById("stObsText").value, document.getElementById("stObsView").value,
+        document.getElementById("stObsHandoff").checked);
       if (ok){ toast("所見メモを保存しました"); render(); }
     };
+    document.getElementById("stGoComments").onclick = ()=>{
+      state.commentsStudentId = st.id; state.commentsDocKind = "report"; state.commentsIncludeL3 = false;
+      state.view = "comments"; render();
+    };
+    document.getElementById("stGoGuidance").onclick = ()=>{
+      state.guidanceStudentId = st.id; state.view = "guidance"; render();
+    };
+    document.getElementById("stMarker").onclick = async ()=>{
+      const cur = findMarker(await loadMarkers(), st.id, "student", st.id);
+      openMarkerSheet(st.id, "student", st.id, cur);
+    };
+    document.getElementById("stCareerAdd").onclick = ()=>openCareerSheet(st.id, null);
+    root.querySelectorAll("[data-career]").forEach(el=>el.onclick = async ()=>{
+      const rec = await getEnc("careerRecords", el.dataset.career);
+      if (rec && !rec.decryptError) openCareerSheet(st.id, rec);
+    });
+    const unlockBtn = document.getElementById("stL3Unlock");
+    if (unlockBtn) unlockBtn.onclick = async ()=>{ if (await ensureL3()) render(); };
+    if (!state.privacyOn && l3IsActive()){
+      document.getElementById("stIvAdd").onclick = ()=>openInterviewSheet(st.id, null);
+      document.getElementById("stCnAdd").onclick = ()=>openContactSheet(st.id, null);
+      document.getElementById("stCrAdd").onclick = ()=>openCareNoteSheet(st.id, null);
+      root.querySelectorAll("[data-iv]").forEach(el=>el.onclick = async ()=>{
+        const rec = await getEnc("interviews", el.dataset.iv);
+        if (rec && !rec.decryptError) openInterviewSheet(st.id, rec);
+      });
+      root.querySelectorAll("[data-cn]").forEach(el=>el.onclick = async ()=>{
+        const rec = await getEnc("contacts", el.dataset.cn);
+        if (rec && !rec.decryptError) openContactSheet(st.id, rec);
+      });
+      root.querySelectorAll("[data-cr]").forEach(el=>el.onclick = async ()=>{
+        const rec = await getEnc("careNotes", el.dataset.cr);
+        if (rec && !rec.decryptError) openCareNoteSheet(st.id, rec);
+      });
+    }
   }
 }
 
@@ -2903,6 +3881,32 @@ async function buildGradeMaterials(course, term){
   }
   return { materials, tests, assigns };
 }
+// ===== 音声読み上げ（speechSynthesis・音声合成のみ。音声認識は使わない）=====
+function speechAvailable(){ try { return typeof window !== "undefined" && "speechSynthesis" in window && typeof SpeechSynthesisUtterance !== "undefined"; } catch(e){ return false; } }
+function speakText(text){
+  if (!text || !speechAvailable()) return false;
+  try {
+    const u = new SpeechSynthesisUtterance(String(text));
+    u.lang = "ja-JP";
+    const r = Number(settings().speechRate);
+    u.rate = (r && r >= 0.5 && r <= 2) ? r : 1;
+    window.speechSynthesis.speak(u);
+    return true;
+  } catch(e){ return false; }
+}
+function stopSpeech(){
+  try { if (speechAvailable()) window.speechSynthesis.cancel(); } catch(e){}
+}
+function scoreReadbackText(number, score){
+  const numPart = (number != null && number !== "" && !Number.isNaN(Number(number))) ? `${number}番、` : "";
+  return `${numPart}${score}点`;
+}
+function speakScoreConfirm(number, score){
+  if (settings().scoreReadback === false) return false; // 既定はオン。明示的にオフのときだけ読まない
+  if (score == null || score === "") return false;
+  return speakText(scoreReadbackText(number, score));
+}
+
 async function renderGrades(root){
   if (!state.selectedCourseId && state.courses.length) state.selectedCourseId = state.courses[0].id;
   const course = state.courses.find(c=>c.id===state.selectedCourseId) || null;
@@ -2949,6 +3953,13 @@ async function renderGrades(root){
     h += `<div class="card"><h3 class="sect" style="margin-top:0">スコア入力 ― ${esc(selTest.title||selTest.name)}</h3>
     ${scoreRec && scoreRec.decryptError?`<div class="warnbox">このテストのスコアを復号できませんでした。</div>`:""}
     <p class="muted">満点 ${esc(selTest.maxScore)} 点。変更のたびに暗号化して自動保存します。</p>
+    <div class="card" style="background:var(--surface2,#f4f1e8);margin:8px 0">
+      <div class="rowflex">
+        <button class="btn ${settings().scoreReadback!==false?"gold":"danger"}" id="gsReadToggle" style="font-size:18px;padding:12px 18px">🔊 点数の読み上げ確認：${settings().scoreReadback!==false?"オン":"オフ"}</button>
+        <button class="btn" id="gsSpeechStop" style="font-size:18px;padding:12px 18px">⏹ 読み上げを止める</button>
+      </div>
+      <p class="muted" style="margin:6px 0 0">点数を確定するたびに「出席番号＋点数」を読み返します（例：「5番、85点」）。行ずれと数字の誤入りの両方を防ぐための仕組みです。音の出せない場面ではオフにしてください。読み上げるのは番号と点数だけで、氏名は読み上げません。</p>
+    </div>
     ${members.map(({student:st})=>{
       const cur = scores[st.id];
       return `<div class="listitem" style="cursor:default"><span class="t">${esc(displayNameOf(st, group.id))}</span>
@@ -2972,6 +3983,9 @@ async function renderGrades(root){
     for (const {student:st} of members) if (!(st.id in m.achievements)) m.achievements[st.id] = null;
   }
   const grades = computeGrades(materials, sim);
+  const markersAll = await loadMarkers();
+  const gradesTargetId = `${course.id}:${term.id}`;
+  const gradesMarkers = markersAll.filter(m=>m.targetType==="grades" && m.targetId===gradesTargetId);
   const thA = (sim.thresholds.find(t=>t.label==="A")||{}).min, thB = (sim.thresholds.find(t=>t.label==="B")||{}).min;
   const rt = (r)=>{ const row = sim.ratingTable.find(x=>x.rating===r); return row?row.min:""; };
   h += `<div class="card"><h3 class="sect" style="margin-top:0">観点別集計・評定シミュレーション（${esc(term.name)}）</h3>
@@ -2993,12 +4007,16 @@ async function renderGrades(root){
     <button class="btn" id="gsConfirm">確定する（スナップショット保存）</button>
   </div>
   <div id="gsSnapshotInfo"></div>
-  <div style="overflow-x:auto;margin-top:10px"><table class="plain"><tr><th>生徒</th>${VIEWPOINTS.map(v=>`<th>${esc(v.label)}</th>`).join("")}<th>評定</th></tr>
+  <p style="margin:8px 0">⚑ この講座・学期の要確認：<strong>${gradesMarkers.length}件</strong>
+    <button class="btn small" id="gsGoReview">⚑ 確認待ち一覧を開く</button>
+    <span class="muted">集計結果を見て「違うな」と気づいた生徒には、行の ⚑ で印を付けておけます。</span></p>
+  <div style="overflow-x:auto;margin-top:10px"><table class="plain"><tr><th>生徒</th>${VIEWPOINTS.map(v=>`<th>${esc(v.label)}</th>`).join("")}<th>評定</th><th>確認</th></tr>
   ${members.map(({student:st})=>{
     const g = grades[st.id];
+    const mk = findMarker(markersAll, st.id, "grades", gradesTargetId);
     const cell = (vid)=>{ const pv = g && g.perView ? g.perView[vid] : null; return pv ? `${Math.round(pv.score*100)}（${esc(pv.rating||"―")}）` : "―"; };
-    return `<tr><td>${esc(displayNameOf(st, group.id))}</td><td>${cell("knowledge")}</td><td>${cell("thinking")}</td><td>${cell("attitude")}</td><td><strong>${g&&g.rating!=null?esc(g.rating):"―"}</strong></td></tr>`;
-  }).join("") || `<tr><td colspan="5">対象生徒がいません</td></tr>`}
+    return `<tr><td>${esc(displayNameOf(st, group.id))}</td><td>${cell("knowledge")}</td><td>${cell("thinking")}</td><td>${cell("attitude")}</td><td><strong>${g&&g.rating!=null?esc(g.rating):"―"}</strong></td><td><button class="btn small ${mk?"danger":"ghost"}" data-g-marker="${st.id}" title="要確認マーカー">${mk?"⚑ 付いています":"⚑"}</button></td></tr>`;
+  }).join("") || `<tr><td colspan="6">対象生徒がいません</td></tr>`}
   </table></div></div>`;
 
   // 転記用一覧
@@ -3009,7 +4027,8 @@ async function renderGrades(root){
     h += `<div class="statusseg" id="gTabSeg">
       <button data-gtab="score" class="${state.gradesTab==="score"?"on":""}">テストのスコア</button>
       <button data-gtab="attendance" class="${state.gradesTab==="attendance"?"on":""}">出欠集計</button>
-      <button data-gtab="grades" class="${state.gradesTab==="grades"?"on":""}">観点別評定</button></div>
+      <button data-gtab="grades" class="${state.gradesTab==="grades"?"on":""}">観点別評定</button>
+      <button data-gtab="comments" class="${state.gradesTab==="comments"?"on":""}">所見（確定分）</button></div>
     <div id="gTransferBody" style="margin-top:10px"></div>
     <label class="f">タブ区切りテキスト（転記用）</label>
     <textarea class="t" id="gTsv" readonly style="min-height:120px"></textarea>
@@ -3049,11 +4068,25 @@ async function renderGrades(root){
       const el = document.getElementById("gsSaved");
       if (el) el.textContent = "保存済み " + new Date().toLocaleTimeString("ja-JP");
     };
+    const readTgl = document.getElementById("gsReadToggle");
+    if (readTgl) readTgl.onclick = ()=>{
+      const next = !(settings().scoreReadback !== false);
+      saveSettings({ scoreReadback: next });
+      toast("点数の読み上げ確認を " + (next?"オン":"オフ") + " にしました");
+      render();
+    };
+    const stopBtn = document.getElementById("gsSpeechStop");
+    if (stopBtn) stopBtn.onclick = ()=>{ stopSpeech(); toast("読み上げを止めました"); };
     root.querySelectorAll("[data-gs-score]").forEach(el=>el.addEventListener("change", async ()=>{
-      const cur = scores[el.dataset.gsScore] || { score: null, absent: false, memo: "" };
+      const sid = el.dataset.gsScore;
+      const cur = scores[sid] || { score: null, absent: false, memo: "" };
       cur.score = el.value==="" ? null : Number(el.value);
-      scores[el.dataset.gsScore] = cur;
+      scores[sid] = cur;
       await save();
+      if (cur.score != null && !cur.absent){
+        const m = state.memberships.find(x=>x.groupId===group.id && x.studentId===sid);
+        speakScoreConfirm(m ? m.no : null, cur.score);
+      }
     }));
     root.querySelectorAll("[data-gs-absent]").forEach(el=>el.addEventListener("change", async ()=>{
       const cur = scores[el.dataset.gsAbsent] || { score: null, absent: false, memo: "" };
@@ -3068,6 +4101,12 @@ async function renderGrades(root){
       await save();
     }));
   }
+  const gsr = document.getElementById("gsGoReview");
+  if (gsr) gsr.onclick = ()=>{ state.view = "review"; render(); };
+  root.querySelectorAll("[data-g-marker]").forEach(btn=>btn.onclick = ()=>{
+    const sid = btn.dataset.gMarker;
+    openMarkerSheet(sid, "grades", gradesTargetId, findMarker(markersAll, sid, "grades", gradesTargetId));
+  });
   const readSim = ()=>{
     const num = (id)=>{ const el=document.getElementById(id); return el?Number(el.value):0; };
     return {
@@ -3128,6 +4167,28 @@ async function renderGrades(root){
       body.innerHTML = `<div style="overflow-x:auto"><table class="plain"><tr><th>生徒</th>${ATTENDANCE_STATUSES.map(x=>`<th>${x.label}</th>`).join("")}<th>合計</th></tr>
       ${members.map(({student:st})=>{ const s2=sum[st.id]||{total:0,byStatus:{}}; return `<tr><td>${esc(displayNameOf(st, group?group.id:null))}</td>${ATTENDANCE_STATUSES.map(x=>`<td>${s2.byStatus[x.id]||0}</td>`).join("")}<td>${s2.total}</td></tr>`; }).join("")}</table></div>`;
       rows = members.map(({student:st})=>{ const s2=sum[st.id]||{total:0,byStatus:{}}; return [displayNameOf(st, group?group.id:null)].concat(ATTENDANCE_STATUSES.map(x=>String(s2.byStatus[x.id]||0))).concat([String(s2.total)]); });
+    } else if (state.gradesTab==="comments"){
+      const finals = [];
+      for (const {student:st} of members){
+        const list = await dbGetByIndex("commentDrafts", "byStudent", st.id);
+        for (const raw of list){
+          if (raw.termId!==term.id) continue;
+          const d = await decryptMerge(raw);
+          if (!d.decryptError && d.status==="final") finals.push({ st, d });
+        }
+      }
+      body.innerHTML = finals.length ? `<div style="overflow-x:auto"><table class="plain"><tr><th>生徒</th><th>文書種別</th><th>所見本文</th></tr>
+      ${finals.map(({st, d})=>{
+        const tpl2 = resolveDocTemplate(state.docTemplatesCache||[], d.docKind);
+        const text = tpl2.sections.map(sec=> (d.sections && d.sections[sec.key]) || "").filter(Boolean).join(" ");
+        return `<tr><td>${esc(displayNameOf(st, group?group.id:null))}</td><td>${esc(docKindLabel(d.docKind))}</td><td>${esc(text)}</td></tr>`;
+      }).join("")}</table></div>`
+        : `<p class="muted">この学期に確定した所見はまだありません。所見づくりの画面で下書きを「確定」すると、ここに載ります。</p>`;
+      rows = finals.map(({st, d})=>{
+        const tpl2 = resolveDocTemplate(state.docTemplatesCache||[], d.docKind);
+        const text = tpl2.sections.map(sec=> (d.sections && d.sections[sec.key]) || "").filter(Boolean).join(" ");
+        return [displayNameOf(st, group?group.id:null), docKindLabel(d.docKind), text];
+      });
     } else {
       body.innerHTML = `<div style="overflow-x:auto"><table class="plain"><tr><th>生徒</th>${VIEWPOINTS.map(v=>`<th>${esc(v.label)}</th>`).join("")}<th>評定</th></tr>
       ${members.map(({student:st})=>{ const g=grades[st.id]; const cell=(vid)=>{ const pv=g&&g.perView?g.perView[vid]:null; return pv?esc(pv.rating||""):""; }; return `<tr><td>${esc(displayNameOf(st, group?group.id:null))}</td><td>${cell("knowledge")}</td><td>${cell("thinking")}</td><td>${cell("attitude")}</td><td>${g&&g.rating!=null?esc(g.rating):""}</td></tr>`; }).join("")}</table></div>`;
@@ -3255,6 +4316,876 @@ async function renderProgress(root){
       order: maxOrder+1, plannedLessons: Number(document.getElementById("puPlanned").value)||0, level: 1 });
     toast("単元を追加しました"); render();
   };
+}
+
+// ===== 第3期：要確認マーカー（reviewMarkers・Level 2）=====
+function markerId(studentId, targetType, targetId){ return `mk:${studentId}:${targetType}:${targetId}`; }
+async function loadMarkers(){
+  const raw = await getReviewMarkersByYear(state.currentYearId);
+  const out = [];
+  for (const r of raw){ const d = await decryptMerge(r); if (!d.decryptError) out.push(d); }
+  return out;
+}
+function findMarker(markers, studentId, targetType, targetId){
+  return markers.find(m=>m.id===markerId(studentId, targetType, targetId)) || null;
+}
+function markerTargetLabel(m){
+  if (m.targetType==="grades"){
+    const [cid, tid] = String(m.targetId||"").split(":");
+    const c = state.courses.find(x=>x.id===cid);
+    const t = state.terms.find(x=>x.id===tid);
+    return `成績・集計${c?`（${c.name}）`:""}${t?` ${t.name}`:""}`;
+  }
+  if (m.targetType==="comment"){
+    const [dk, tid] = String(m.targetId||"").split(":");
+    const t = state.terms.find(x=>x.id===tid);
+    return `所見の下書き（${docKindLabel(dk)}${t?`・${t.name}`:""}）`;
+  }
+  return "生徒ページ";
+}
+function openMarkerSheet(studentId, targetType, targetId, existing){
+  const st = studentById(studentId);
+  openSheet(`
+    <h3 class="sect" style="margin-top:0">⚑ 要確認マーカー ― ${esc(st?displayNameOf(st, null):"")}</h3>
+    <p class="muted">対象：${esc(markerTargetLabel({ targetType, targetId }))}。機械の集計や下書きを見て「ここは違うな」と気づいたところに付ける印です。直したら外してください。</p>
+    <label class="f">短いメモ（任意・何が気になるか）</label>
+    <textarea class="t" id="mkMemo">${esc(existing? (existing.memo||"") : "")}</textarea>
+    <div class="rowflex" style="margin-top:12px">
+      <button class="btn gold" id="mkSave">${existing?"メモを更新する":"マーカーを付ける"}</button>
+      ${existing?`<button class="btn danger" id="mkRemove">マーカーを外す</button>`:""}
+      <button class="btn ghost" id="mkCancel">キャンセル</button></div>`);
+  document.getElementById("mkCancel").onclick = ()=>closeSheet();
+  document.getElementById("mkSave").onclick = async ()=>{
+    await putEnc("reviewMarkers",
+      { id: markerId(studentId, targetType, targetId), studentId, targetType, targetId, yearId: state.currentYearId, level: 2 },
+      { memo: document.getElementById("mkMemo").value, createdAt: existing && existing.createdAt ? existing.createdAt : new Date().toISOString() });
+    closeSheet(); toast("要確認マーカーを付けました"); render();
+  };
+  const rm = document.getElementById("mkRemove");
+  if (rm) rm.onclick = async ()=>{
+    await dbDelete("reviewMarkers", markerId(studentId, targetType, targetId));
+    closeSheet(); toast("マーカーを外しました"); render();
+  };
+}
+function jumpToMarker(m){
+  if (m.targetType==="grades"){
+    const [cid, tid] = String(m.targetId||"").split(":");
+    if (cid) state.selectedCourseId = cid;
+    if (tid) state.selectedTermId = tid;
+    state.view = "grades";
+  } else if (m.targetType==="comment"){
+    const [dk, tid] = String(m.targetId||"").split(":");
+    state.commentsStudentId = m.studentId;
+    if (dk) state.commentsDocKind = dk;
+    if (tid) state.selectedTermId = tid;
+    state.view = "comments";
+  } else {
+    state.selectedStudentId = m.studentId;
+    state.view = "student";
+  }
+  render();
+}
+async function renderReview(root){
+  const markers = await loadMarkers();
+  markers.sort((a,b)=> (a.updatedAt||"")<(b.updatedAt||"")?1:-1);
+  let h = `<div class="rowflex">${backHomeBtn("rvHome")}</div>
+  <h2 class="viewtitle">確認待ち一覧（${markers.length}件）</h2>
+  <div class="card"><p class="muted" style="margin-top:0">成績の集計結果や所見の下書きを見て「この子のここは違うな」と気づいた箇所に付けた印の一覧です。機械の出力は鵜呑みにせず、違和感を残して直すための仕組みです。対象をタップすると該当箇所へ飛びます。直してマーカーを外すと、この一覧から消えます。</p>
+  ${markers.map(m=>{
+    const st = studentById(m.studentId);
+    return `<div class="listitem" data-rv-jump="${m.id}"><span class="t">⚑ ${esc(st?displayNameOf(st, null):"（不明な生徒）")}</span>
+      <br><span class="muted">${esc(markerTargetLabel(m))}</span>
+      ${m.memo?`<br>${esc(state.privacyOn?mask(m.memo):m.memo)}`:""}
+      <div style="margin-top:4px"><button class="btn small" data-rv-go="${m.id}">該当箇所へ</button>
+      <button class="btn small danger" data-rv-remove="${m.id}">直したので外す</button></div></div>`;
+  }).join("") || `<p>確認待ちはありません。気になる箇所があれば、成績・生徒ページ・所見づくりの「⚑」ボタンで印を付けておけます。</p>`}
+  </div>`;
+  root.innerHTML = h;
+  bindHome("rvHome");
+  const byId = (id)=> markers.find(m=>m.id===id);
+  root.querySelectorAll("[data-rv-go]").forEach(btn=>btn.onclick = (e)=>{ e.stopPropagation(); const m = byId(btn.dataset.rvGo); if (m) jumpToMarker(m); });
+  root.querySelectorAll("[data-rv-remove]").forEach(btn=>btn.onclick = async (e)=>{
+    e.stopPropagation();
+    await dbDelete("reviewMarkers", btn.dataset.rvRemove);
+    toast("マーカーを外しました"); render();
+  });
+  root.querySelectorAll("[data-rv-jump]").forEach(el=>el.onclick = (e)=>{
+    if (e.target.closest("button")) return;
+    const m = byId(el.dataset.rvJump); if (m) jumpToMarker(m);
+  });
+}
+
+// ===== 第3期：生徒指導（guidance・Level 3）=====
+function openGuidanceSheet(studentId, rec, caseId){
+  const isNew = !rec;
+  rec = rec || { id: uuid(), studentId: studentId||"", caseId: caseId||uuid(), date: todayString(), yearId: state.currentYearId, level: 3,
+    category: "trouble", title: "", detail: "", relatedStudents: [], relatedParties: "",
+    reportedToAdmin: false, reportedDate: "", nextAction: "", nextActionDue: "", status: "ongoing", handoff: false };
+  const fixedStudent = !!studentId;
+  openSheet(`
+    <h3 class="sect" style="margin-top:0">${isNew?"指導記録を追加":"指導記録を編集"}（Level 3）</h3>
+    <label class="f">主たる生徒</label>
+    ${fixedStudent
+      ? `<p><strong>${esc(displayNameOf(studentById(rec.studentId), null))}</strong></p><input type="hidden" id="gdStudent" value="${esc(rec.studentId)}">`
+      : `<select class="t" id="gdStudent">${state.students.map(x=>{
+          const m0 = state.memberships.find(m=>m.studentId===x.id);
+          return `<option value="${x.id}" ${rec.studentId===x.id?"selected":""}>${esc(displayNameOf(x, m0?m0.groupId:null))}</option>`;}).join("")}</select>`}
+    <div class="rowflex"><span style="flex:1">日付 <input class="t" type="date" id="gdDate" value="${esc(rec.date||todayString())}"></span>
+    <span style="flex:1">区分 <select class="t" id="gdCat">${GUIDANCE_CATEGORIES.map(k=>`<option value="${k.id}" ${rec.category===k.id?"selected":""}>${k.label}</option>`).join("")}</select></span>
+    <span style="flex:1">状態 <select class="t" id="gdStatus">${GUIDANCE_STATUSES.map(k=>`<option value="${k.id}" ${rec.status===k.id?"selected":""}>${k.label}</option>`).join("")}</select></span></div>
+    <label class="f">件名</label><input class="t" id="gdTitle" value="${esc(rec.title||"")}">
+    <label class="f">経緯の詳細</label><textarea class="t" id="gdDetail" style="min-height:110px">${esc(rec.detail||"")}</textarea>
+    <div class="rowflex">${phraseBtnHtml("gdDetail")}<span class="muted">キーボードのマイクで音声入力もできます</span></div>
+    <label class="f">関係する他の生徒（複数選択可）</label>
+    <select class="t" id="gdRelated" multiple size="5">${state.students.filter(x=>x.id!==rec.studentId).map(x=>{
+      const m0 = state.memberships.find(m=>m.studentId===x.id);
+      return `<option value="${x.id}" ${(rec.relatedStudents||[]).includes(x.id)?"selected":""}>${esc(displayNameOf(x, m0?m0.groupId:null))}</option>`;}).join("")}</select>
+    <label class="f">関係者（学年主任・生徒指導主事・SC・SSW・保護者など）</label><input class="t" id="gdParties" value="${esc(rec.relatedParties||"")}">
+    <label class="f"><input type="checkbox" id="gdReported" ${rec.reportedToAdmin?"checked":""} style="width:22px;height:22px;vertical-align:middle"> 管理職へ報告済み</label>
+    <label class="f">報告日</label><input class="t" type="date" id="gdReportedDate" value="${esc(rec.reportedDate||"")}" style="max-width:220px">
+    <label class="f">次回アクション</label><input class="t" id="gdNext" value="${esc(rec.nextAction||"")}">
+    <label class="f">次回アクションの期限</label><input class="t" type="date" id="gdNextDue" value="${esc(rec.nextActionDue||"")}" style="max-width:220px">
+    <label class="f"><input type="checkbox" id="gdHandoff" ${rec.handoff?"checked":""} style="width:22px;height:22px;vertical-align:middle"> 次年度担任への申し送り対象にする</label>
+    ${sheetSaveRow("gdSave", isNew?null:"gdDelete")}`);
+  bindSheetCancel();
+  document.getElementById("gdSave").onclick = async ()=>{
+    const sid = document.getElementById("gdStudent").value;
+    if (!sid){ toast("生徒を選んでください"); return; }
+    await putEnc("guidanceRecords",
+      { id: rec.id, studentId: sid, caseId: rec.caseId, date: document.getElementById("gdDate").value||todayString(), yearId: state.currentYearId, level: 3 },
+      { category: document.getElementById("gdCat").value, title: document.getElementById("gdTitle").value,
+        detail: document.getElementById("gdDetail").value,
+        relatedStudents: Array.from(document.getElementById("gdRelated").selectedOptions).map(o=>o.value),
+        relatedParties: document.getElementById("gdParties").value,
+        reportedToAdmin: document.getElementById("gdReported").checked,
+        reportedDate: document.getElementById("gdReportedDate").value,
+        nextAction: document.getElementById("gdNext").value,
+        nextActionDue: document.getElementById("gdNextDue").value,
+        status: document.getElementById("gdStatus").value,
+        handoff: document.getElementById("gdHandoff").checked });
+    state.guidanceCaseId = rec.caseId;
+    closeSheet(); toast("指導記録を保存しました"); render();
+  };
+  const del = document.getElementById("gdDelete");
+  if (del) del.onclick = async ()=>{ await dbDelete("guidanceRecords", rec.id); closeSheet(); toast("削除しました"); render(); };
+}
+
+async function renderGuidance(root){
+  let h = `<div class="rowflex">${backHomeBtn("gdHome")}</div>
+  <h2 class="viewtitle">生徒指導（Level 3）</h2>`;
+  if (state.privacyOn){
+    h += `<div class="card"><p>🙈 プライバシーモード中は、生徒指導の画面自体を表示しません。ヘッダーでプライバシーモードを OFF にしてから開いてください。</p></div>`;
+    root.innerHTML = h; bindHome("gdHome"); return;
+  }
+  if (!l3IsActive()){
+    h += `<div class="card"><h3 class="sect" style="margin-top:0">🔒 ロック中です</h3>
+    <p class="muted">生徒指導の記録は最重要区分（Level 3）です。件数や有無も表示されません。開くには PIN の再入力が必要です。</p>
+    <button class="btn gold" id="gdUnlock">🔒 Level 3 を開く（PIN再入力）</button></div>`;
+    root.innerHTML = h; bindHome("gdHome");
+    document.getElementById("gdUnlock").onclick = async ()=>{ if (await ensureL3()) render(); };
+    return;
+  }
+  const yr = yearRange(state.currentYearId);
+  const raw = await dbGetRange("guidanceRecords", "byDate", yr.startDate, yr.endDate);
+  const records = [];
+  for (const r of raw){ const d = await decryptMerge(r); if (!d.decryptError) records.push(d); }
+  const due = guidanceDueList(records);
+  const today = todayString();
+  h += `<div class="card" style="border-color:var(--danger)"><h3 class="sect" style="margin-top:0">次回アクションの期限（Level 3 の内側だけの表示）</h3>
+  ${due.length ? due.map(r=>{
+    const st = studentById(r.studentId);
+    return `<div class="listitem" data-gd-due="${r.id}"><span class="t">${esc(r.nextActionDue)} ${r.nextActionDue<today?"⚠ 期限超過":""}</span>
+    <br>${esc(st?displayNameOf(st, null):"（不明）")} ― ${esc(r.nextAction||r.title||"")}
+    <br><span class="muted">${esc(guidanceCategoryLabel(r.category))} ／ ${esc(guidanceStatusLabel(r.status))}</span></div>`;
+  }).join("") : `<p class="muted">期限のある未完了アクションはありません。</p>`}
+  </div>`;
+  const filterSid = state.guidanceStudentId;
+  const cases = groupGuidanceCases(filterSid ? records.filter(r=>r.studentId===filterSid) : records);
+  h += `<h3 class="sect">案件一覧${filterSid?`（${esc(displayNameOf(studentById(filterSid), null))} で絞り込み中）`:""}</h3>
+  ${filterSid?`<button class="btn small ghost" id="gdClearFilter">絞り込みを解除</button>`:""}
+  ${cases.map(c=>{
+    const st = studentById(c.studentId);
+    return `<div class="listitem" data-gd-case="${c.caseId}"><span class="t">${esc(st?displayNameOf(st, null):"（不明）")} ― ${esc(c.latest.title||"（件名なし）")}</span>
+    <br><span class="muted">${esc(guidanceCategoryLabel(c.latest.category))} ／ ${esc(guidanceStatusLabel(c.status))} ／ ${c.count}件 ／ 最新 ${esc(c.latest.date||"")}${c.latest.reportedToAdmin?" ／ 管理職へ報告済み":""}</span></div>`;
+  }).join("") || `<p class="muted">案件はまだありません。</p>`}
+  <div style="margin:10px 0"><button class="btn gold" id="gdNewCase">＋ 新しい案件を作る</button></div>`;
+  const selCase = state.guidanceCaseId ? cases.find(c=>c.caseId===state.guidanceCaseId) : null;
+  if (selCase){
+    h += `<div class="card"><h3 class="sect" style="margin-top:0">案件のタイムライン ― ${esc(displayNameOf(studentById(selCase.studentId), null))}</h3>
+    ${selCase.records.map(r=>`<div class="listitem" data-gd-rec="${r.id}"><span class="muted">${esc(r.date||"")}</span> <span class="chip">${esc(guidanceCategoryLabel(r.category))}</span> <span class="chip">${esc(guidanceStatusLabel(r.status))}</span>${handoffBadge(r)}
+      <br><span class="t">${esc(r.title||"（件名なし）")}</span>
+      ${r.detail?`<br>${esc(r.detail)}`:""}
+      ${r.relatedParties?`<br><span class="muted">関係者：${esc(r.relatedParties)}</span>`:""}
+      ${r.reportedToAdmin?`<br><span class="muted">管理職へ報告済み${r.reportedDate?`（${esc(r.reportedDate)}）`:""}</span>`:""}
+      ${r.nextAction?`<br><span class="muted">次回：${esc(r.nextAction)}${r.nextActionDue?`（期限 ${esc(r.nextActionDue)}）`:""}</span>`:""}
+    </div>`).join("")}
+    <button class="btn gold" id="gdAddToCase">＋ この案件に記録を追加</button></div>`;
+  }
+  root.innerHTML = h;
+  bindHome("gdHome");
+  const cf = document.getElementById("gdClearFilter");
+  if (cf) cf.onclick = ()=>{ state.guidanceStudentId = null; render(); };
+  document.getElementById("gdNewCase").onclick = ()=>openGuidanceSheet(state.guidanceStudentId||null, null, null);
+  root.querySelectorAll("[data-gd-case]").forEach(el=>el.onclick = ()=>{ state.guidanceCaseId = el.dataset.gdCase; render(); });
+  root.querySelectorAll("[data-gd-due]").forEach(el=>el.onclick = async ()=>{
+    const rec = await getEnc("guidanceRecords", el.dataset.gdDue);
+    if (rec && !rec.decryptError) openGuidanceSheet(rec.studentId, rec);
+  });
+  root.querySelectorAll("[data-gd-rec]").forEach(el=>el.onclick = async ()=>{
+    const rec = await getEnc("guidanceRecords", el.dataset.gdRec);
+    if (rec && !rec.decryptError) openGuidanceSheet(rec.studentId, rec);
+  });
+  const atc = document.getElementById("gdAddToCase");
+  if (atc && selCase) atc.onclick = ()=>openGuidanceSheet(selCase.studentId, null, selCase.caseId);
+}
+
+// ===== 第3期：所見づくり（comments）=====
+async function loadCommentInputs(studentId){
+  // buildCommentMaterials の入力形に合わせて集める（集約結果そのものは保存しない）
+  const obsRaw = await dbGetByIndex("observations", "byStudent", studentId);
+  const observations = [];
+  for (const o of obsRaw){ const d = await decryptMerge(o); if (!d.decryptError) observations.push(d); }
+  const yr = yearRange(state.currentYearId);
+  const attRaw = await dbGetRange("attendance", "byDate", yr.startDate, yr.endDate);
+  const attendanceMarksList = [];
+  for (const r of attRaw){
+    const d = await decryptMerge(r);
+    if (!d.decryptError && d.marks && d.marks[studentId]) attendanceMarksList.push(d.marks);
+  }
+  const myGroups = state.memberships.filter(m=>m.studentId===studentId).map(m=>m.groupId);
+  const myCourses = state.courses.filter(c=>c.groupId && myGroups.includes(c.groupId));
+  const submissions = [];
+  const scores = [];
+  for (const c of myCourses){
+    const assigns = await getAssignmentsByCourse(c.id);
+    for (const a of assigns){
+      const rec = await getEnc("submissionRecords", a.id);
+      const stt = rec && rec.states ? rec.states[studentId] : null;
+      submissions.push(stt ? { state: stt } : null);
+    }
+    const tests = await getTestsByCourse(c.id);
+    for (const t of tests){
+      const rec = await getEnc("scoreRecords", t.id);
+      const cur = rec && rec.scores ? rec.scores[studentId] : null;
+      if (cur && cur.score != null && !cur.absent) scores.push({ date: t.date || "", score: cur.score, name: t.name || "" });
+    }
+  }
+  const careerRecords = await loadStudentRecords("careerRecords", studentId);
+  return { observations, attendanceMarksList, submissions, scores, careerRecords };
+}
+function sectionViewpointLabel(v){
+  if (v === "life") return "生活・行動";
+  if (v === "career") return "進路";
+  return viewpointLabel(v);
+}
+function charStatusLabel(cnt, sec){
+  const stt = sectionCharStatus(cnt, sec.charMin, sec.charMax);
+  if (stt === "none") return "目安なし";
+  if (!cnt) return "未入力";
+  if (stt === "short") return "目安より短め";
+  if (stt === "over") return "目安より長め";
+  return "目安の範囲内";
+}
+
+function openTemplateSheet(docKind){
+  const existing = state.docTemplatesCache.find(t=>t.docKind===docKind);
+  const tpl = existing || builtinTemplate(docKind);
+  const sections = (tpl.sections||[]).map(s=>({ ...s }));
+  const body = `
+    <h3 class="sect" style="margin-top:0">文書テンプレートの編集 ― ${esc(docKindLabel(docKind))}</h3>
+    <p class="muted">節の構成・対応観点・文字数目安を変更できます。ここでの変更はこの文書種別の下書きすべてに使われます。</p>
+    <div id="tplSections">${sections.map((s,i)=>`
+      <div class="card" style="margin:8px 0">
+        <label class="f">節の見出し</label><input class="t" data-tpl="label" data-i="${i}" value="${esc(s.label||"")}">
+        <div class="rowflex"><span style="flex:1">対応観点 <select class="t" data-tpl="viewpoint" data-i="${i}">
+          ${["knowledge","thinking","attitude","life","career","none"].map(v=>`<option value="${v}" ${s.viewpoint===v?"selected":""}>${esc(sectionViewpointLabel(v))}</option>`).join("")}</select></span>
+        <span>目安（最小）<input class="t" type="number" min="0" data-tpl="charMin" data-i="${i}" value="${s.charMin||0}" style="width:100px"></span>
+        <span>目安（最大）<input class="t" type="number" min="0" data-tpl="charMax" data-i="${i}" value="${s.charMax||0}" style="width:100px"></span></div>
+        <label class="f">書き方の目安</label><input class="t" data-tpl="guide" data-i="${i}" value="${esc(s.guide||"")}">
+      </div>`).join("")}</div>
+    <div class="rowflex" style="margin-top:12px">
+      <button class="btn gold" id="tplSave">テンプレートを保存</button>
+      ${existing?`<button class="btn danger" id="tplReset">組み込みの既定に戻す</button>`:""}
+      <button class="btn ghost" id="tplCancel">キャンセル</button></div>`;
+  openSheet(body);
+  document.getElementById("tplCancel").onclick = ()=>closeSheet();
+  document.getElementById("tplSave").onclick = async ()=>{
+    const secs = sections.map((s,i)=>({
+      key: s.key || ("sec"+i),
+      label: document.querySelector(`[data-tpl="label"][data-i="${i}"]`).value,
+      viewpoint: document.querySelector(`[data-tpl="viewpoint"][data-i="${i}"]`).value,
+      charMin: parseInt(document.querySelector(`[data-tpl="charMin"][data-i="${i}"]`).value, 10)||0,
+      charMax: parseInt(document.querySelector(`[data-tpl="charMax"][data-i="${i}"]`).value, 10)||0,
+      guide: document.querySelector(`[data-tpl="guide"][data-i="${i}"]`).value
+    }));
+    const rec = { id: existing? existing.id : uuid(), docKind, name: docKindLabel(docKind)+"（カスタム）", sections: secs, level: 1, updatedAt: Date.now() };
+    await dbPut("docTemplates", rec);
+    state.docTemplatesCache = await dbGetAll("docTemplates");
+    closeSheet(); toast("テンプレートを保存しました"); render();
+  };
+  const rst = document.getElementById("tplReset");
+  if (rst) rst.onclick = async ()=>{ await dbDelete("docTemplates", existing.id); state.docTemplatesCache = await dbGetAll("docTemplates"); closeSheet(); toast("組み込みの既定に戻しました"); render(); };
+}
+
+async function renderComments(root){
+  let h = `<div class="rowflex">${backHomeBtn("cmHome")}</div>
+  <h2 class="viewtitle">所見づくり</h2>`;
+  const terms = state.terms.filter(t=>t.yearId===state.currentYearId);
+  if (!state.selectedTermId && terms.length) state.selectedTermId = terms[0].id;
+  const docKind = state.commentsDocKind || "report";
+  const tpl = resolveDocTemplate(state.docTemplatesCache||[], docKind);
+  h += `<div class="card"><h3 class="sect" style="margin-top:0">対象の選択</h3>
+    <label class="f">生徒</label><select class="t" id="cmStudent">${state.students.map(x=>{
+      const m0 = state.memberships.find(m=>m.studentId===x.id);
+      return `<option value="${x.id}" ${state.commentsStudentId===x.id?"selected":""}>${esc(displayNameOf(x, m0?m0.groupId:null))}</option>`;}).join("")}</select>
+    <div class="rowflex"><span style="flex:1">文書種別 <select class="t" id="cmDocKind">${DOC_KINDS.map(k=>`<option value="${k.id}" ${docKind===k.id?"selected":""}>${k.label}</option>`).join("")}</select></span>
+    <span style="flex:1">学期 <select class="t" id="cmTerm">${terms.map(t=>`<option value="${t.id}" ${state.selectedTermId===t.id?"selected":""}>${esc(t.name)}</option>`).join("")}</select></span></div>
+    <div class="rowflex"><button class="btn small" id="cmTplEdit">テンプレートを編集</button>
+    <span class="muted">材料は開くたびに集め直します（集約結果そのものは保存しません）。下書きだけが暗号化保存されます。</span></div></div>`;
+  let st = studentById(state.commentsStudentId);
+  if (!st && state.students.length){ state.commentsStudentId = state.students[0].id; st = state.students[0]; }
+  if (!st){ h += `<div class="card"><p class="muted">先に名簿で生徒を登録してください。</p></div>`; root.innerHTML = h; bindHome("cmHome"); return; }
+  const inputs = await loadCommentInputs(st.id);
+  let l3Materials = [];
+  const includeL3 = !!state.commentsIncludeL3 && l3IsActive() && !state.privacyOn;
+  if (includeL3){
+    const ivs = await loadStudentRecords("interviews", st.id);
+    const cns = await loadStudentRecords("contacts", st.id);
+    const crs = await loadStudentRecords("careNotes", st.id);
+    l3Materials = [
+      ...ivs.map(r=>({ kind:"面談", date:r.date, text: r.summary||"" })),
+      ...cns.map(r=>({ kind:"連絡", date:r.date, text: [r.subject, r.content].filter(Boolean).join("：") })),
+      ...crs.map(r=>({ kind:"配慮", date:"", text: r.detail||"" }))
+    ].filter(x=>x.text);
+  }
+  const materials = buildCommentMaterials({ studentId: st.id, observations: inputs.observations, attendanceMarksList: inputs.attendanceMarksList, submissions: inputs.submissions, scores: inputs.scores, careerRecords: inputs.careerRecords, template: tpl });
+  const assignedKeys = new Set();
+  Object.values(materials.bySection).flat().forEach(m=>assignedKeys.add((m.date||"")+"|"+(m.text||"")));
+  const unassigned = inputs.observations.filter(o=>!assignedKeys.has((o.date||"")+"|"+(o.text||"")));
+  const draftsRaw = await dbGetByIndex("commentDrafts", "byStudent", st.id);
+  const drafts = [];
+  for (const d of draftsRaw){ const m = await decryptMerge(d); if (!m.decryptError) drafts.push(m); }
+  const draft = drafts.find(d=>d.docKind===docKind && d.termId===state.selectedTermId) ||
+    { id: `${st.id}:${docKind}:${state.selectedTermId}`, studentId: st.id, docKind, termId: state.selectedTermId, yearId: state.currentYearId, sections: {}, status: "draft", level: 2 };
+  const cmMarkers = await loadMarkers();
+  const secText = (sid)=> (draft.sections && draft.sections[sid]) || "";
+  h += `<div class="card"><h3 class="sect" style="margin-top:0">材料（${esc(displayNameOf(st, null))}）</h3>
+    <p style="margin:4px 0"><strong>出欠：</strong>記録 ${materials.attendance.total}件（${ATTENDANCE_STATUSES.map(x=>`${x.label} ${materials.attendance.byStatus[x.id]||0}`).join("・")}）</p>
+    <p style="margin:4px 0"><strong>提出物：</strong>記録 ${materials.submissionSummary.total}件（未提出 ${materials.submissionSummary.unsubmitted}・再提出 ${materials.submissionSummary.resubmit}・遅れ ${materials.submissionSummary.late}）</p>
+    ${materials.scores.length?`<p style="margin:4px 0"><strong>成績の履歴：</strong>${materials.scores.map(s=>`${esc(s.date||"")} ${esc(s.score)}点`).join("、")}</p>`:""}
+    ${materials.career.length?`<p style="margin:4px 0"><strong>進路：</strong>${materials.career.map(c=>esc([c.date, careerKindLabel(c.kind), c.schoolName, c.department].filter(Boolean).join(" "))).join(" ／ ")}</p>`:""}
+    ${unassigned.length?`<h4 class="sect">節に振り分けられなかった所見メモ</h4>${unassigned.map(o=>`<p style="margin:3px 0"><span class="muted">${esc(o.date||"")}</span> ${esc(maskStudentText(o.text||"", st))}</p>`).join("")}`:""}
+    ${!state.privacyOn ? (l3IsActive()
+      ? `<label class="f"><input type="checkbox" id="cmIncludeL3" ${includeL3?"checked":""} style="width:22px;height:22px;vertical-align:middle"> Level 3 の記録（面談・連絡・配慮）も材料に含める（この画面の中だけ）</label>
+         ${includeL3? l3Materials.map(m=>`<p style="margin:3px 0"><span class="chip">${esc(m.kind)}</span> <span class="muted">${esc(m.date||"")}</span> ${esc(m.text)}</p>`).join("") : ""}`
+      : `<p class="muted">Level 3 の記録を材料に含めるには、先に Level 3 のロックを解除してください（既定では含めません）。</p>`)
+      : `<p class="muted">プライバシーモード中は Level 3 の記録を材料に含めません。</p>`}
+  </div>`;
+  h += `<div class="card"><h3 class="sect" style="margin-top:0">下書き ― ${esc(docKindLabel(docKind))}（${draft.status==="final"?"確定済み":"下書き"}）</h3>
+  ${tpl.sections.map(sec=>{
+    const items = materials.bySection[sec.key]||[];
+    const cur = secText(sec.key);
+    const cnt = charCount(cur);
+    return `<div style="border-top:1px solid var(--line);padding-top:10px;margin-top:10px">
+      <h4 class="sect" style="margin:0">${esc(sec.label)} <span class="muted" style="font-size:14px">対応観点：${esc(sectionViewpointLabel(sec.viewpoint))} ／ 目安 ${sec.charMin||0}〜${sec.charMax||"上限なし"}字</span></h4>
+      ${sec.guide?`<p class="muted" style="margin:2px 0">${esc(sec.guide)}</p>`:""}
+      ${items.length?`<div style="margin:6px 0">${items.map((m,i)=>`<div class="listitem" style="cursor:default"><span class="muted">${esc(m.date||"")}（${esc(m.kind==="career"?"進路":"所見メモ")}）</span><br>${esc(maskStudentText(m.text||"", st))}
+        <div style="margin-top:4px"><button class="btn small" data-cm-insert="${sec.key}" data-cm-idx="${i}">この材料を下書きに差し込む</button></div></div>`).join("")}</div>`:`<p class="muted">この節に対応する材料はまだありません。</p>`}
+      <textarea class="t" id="cmSec_${sec.key}" style="min-height:90px">${esc(cur)}</textarea>
+      <div class="rowflex">${phraseBtnHtml("cmSec_"+sec.key)}<span class="muted" data-cm-count="${sec.key}">${cnt}字 ― ${charStatusLabel(cnt, sec)}</span></div>
+    </div>`;
+  }).join("")}
+  <div class="rowflex" style="margin-top:14px">
+    <button class="btn gold" id="cmSaveDraft">下書きを保存</button>
+    <button class="btn" id="cmFinalize">${draft.status==="final"?"確定を取り消す":"確定する（転記サポートに載せる）"}</button>
+    <button class="btn ${findMarker(cmMarkers, st.id, "comment", docKind+":"+state.selectedTermId)?"danger":"ghost"}" id="cmMarker">${findMarker(cmMarkers, st.id, "comment", docKind+":"+state.selectedTermId)?"⚑ 要確認（付いています）":"⚑ 要確認マーカー"}</button>
+    <button class="btn small ghost" id="cmGoReview">⚑ 確認待ち一覧（全${cmMarkers.length}件）</button>
+  </div>
+  ${(()=>{ const mk = findMarker(cmMarkers, st.id, "comment", docKind+":"+state.selectedTermId); return mk && mk.memo ? `<p class="muted">⚑ メモ：${esc(state.privacyOn?mask(mk.memo):mk.memo)}</p>` : ""; })()}
+  <div style="border-top:1px solid var(--line);margin-top:14px;padding-top:10px">
+    <h4 class="sect" style="margin:0">読み上げチェック</h4>
+    <p class="muted">出来上がった所見文を読み上げます。聞きながら内容を確かめるための機能です。読み上げるのは下書き本文そのものだけです（材料の出所などは読み上げません）。</p>
+    <div class="rowflex">
+      <span style="flex:1">読み上げ範囲 <select class="t" id="cmSpeakScope">
+        <option value="all">全文（すべての節）</option>
+        ${tpl.sections.map(sec=>`<option value="${sec.key}">${esc(sec.label)}</option>`).join("")}
+      </select></span>
+      <button class="btn gold" id="cmSpeak" style="font-size:17px;padding:11px 16px">🔊 読み上げる</button>
+      <button class="btn danger" id="cmSpeakStop" style="font-size:17px;padding:11px 16px">⏹ 停止</button>
+    </div>
+  </div>
+  <div id="cmAiPanel"></div>
+  </div>`;
+  root.innerHTML = h;
+  bindHome("cmHome");
+  document.getElementById("cmStudent").onchange = (e)=>{ state.commentsStudentId = e.target.value; state.commentsIncludeL3 = false; render(); };
+  document.getElementById("cmDocKind").onchange = (e)=>{ state.commentsDocKind = e.target.value; render(); };
+  document.getElementById("cmTerm").onchange = (e)=>{ state.selectedTermId = e.target.value; render(); };
+  document.getElementById("cmTplEdit").onclick = ()=>openTemplateSheet(docKind);
+  const inc = document.getElementById("cmIncludeL3");
+  if (inc) inc.onchange = ()=>{ state.commentsIncludeL3 = inc.checked; render(); };
+  const collectSections = ()=>{
+    const out = {};
+    tpl.sections.forEach(sec=>{ const el = document.getElementById("cmSec_"+sec.key); if (el) out[sec.key] = el.value; });
+    return out;
+  };
+  root.querySelectorAll("[data-cm-insert]").forEach(btn=>btn.onclick = ()=>{
+    const secId = btn.dataset.cmInsert;
+    const items = materials.bySection[secId]||[];
+    const m = items[parseInt(btn.dataset.cmIdx, 10)];
+    const ta = document.getElementById("cmSec_"+secId);
+    if (!m || !ta) return;
+    const add = m.text||"";
+    ta.value = ta.value ? (ta.value.endsWith("。")||ta.value.endsWith("\n") ? ta.value + add : ta.value + "。" + add) : add;
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
+    toast("材料を差し込みました");
+  });
+  tpl.sections.forEach(sec=>{
+    const ta = document.getElementById("cmSec_"+sec.key);
+    if (!ta) return;
+    ta.addEventListener("input", ()=>{
+      const cntEl = root.querySelector(`[data-cm-count="${sec.key}"]`);
+      if (!cntEl) return;
+      cntEl.textContent = `${charCount(ta.value)}字 ― ${charStatusLabel(charCount(ta.value), sec)}`;
+    });
+  });
+  document.getElementById("cmSaveDraft").onclick = async ()=>{
+    await putEnc("commentDrafts",
+      { id: draft.id, studentId: st.id, docKind, termId: state.selectedTermId, yearId: state.currentYearId, level: 2 },
+      { sections: collectSections(), status: draft.status||"draft" });
+    toast("所見の下書きを保存しました"); render();
+  };
+  document.getElementById("cmMarker").onclick = async ()=>{
+    const tid = docKind + ":" + state.selectedTermId;
+    const cur = findMarker(await loadMarkers(), st.id, "comment", tid);
+    openMarkerSheet(st.id, "comment", tid, cur);
+  };
+  document.getElementById("cmGoReview").onclick = ()=>{ state.view = "review"; render(); };
+  document.getElementById("cmSpeak").onclick = ()=>{
+    const scope = document.getElementById("cmSpeakScope").value;
+    const secs = scope==="all" ? tpl.sections : tpl.sections.filter(s2=>s2.key===scope);
+    const parts = [];
+    secs.forEach(sec=>{
+      const el = document.getElementById("cmSec_"+sec.key);
+      const v = el ? el.value.trim() : "";
+      if (v) parts.push(v);
+    });
+    if (!parts.length){ toast("読み上げる本文がありません"); return; }
+    stopSpeech();
+    speakText(parts.join("。\n"));
+  };
+  document.getElementById("cmSpeakStop").onclick = ()=>{ stopSpeech(); toast("読み上げを止めました"); };
+  document.getElementById("cmFinalize").onclick = async ()=>{
+    const next = draft.status==="final" ? "draft" : "final";
+    await putEnc("commentDrafts",
+      { id: draft.id, studentId: st.id, docKind, termId: state.selectedTermId, yearId: state.currentYearId, level: 2 },
+      { sections: collectSections(), status: next });
+    toast(next==="final" ? "確定しました。成績画面の「転記サポート」に載ります" : "下書きに戻しました"); render();
+  };
+  renderAiPanel(st, tpl, collectSections);
+}
+
+// ===== ローカルAI（Ollama）支援パネル：所見の推敲のみ =====
+function maskStudentText(text, st){
+  // プライバシーモード中は自由記述を伏せる（第2期の表示時マスクと同じ考え方）
+  if (state.privacyOn) return mask(text||"");
+  return text||"";
+}
+async function aiGenerate(promptText){
+  const s = settings();
+  const host = (s.aiHost||"http://127.0.0.1:11434").replace(/\/+$/,"");
+  const model = s.aiModel||"";
+  if (!model) throw new Error("モデル名が未設定です。設定画面でモデル名を入力してください。");
+  const res = await fetch(host + "/api/generate", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model, prompt: promptText, stream: false })
+  });
+  if (!res.ok) throw new Error("Ollama からエラーが返りました（HTTP " + res.status + "）");
+  const data = await res.json();
+  return (data && data.response) || "";
+}
+function renderAiPanel(st, tpl, collectSections){
+  const panel = document.getElementById("cmAiPanel");
+  if (!panel) return;
+  const s = settings();
+  if (!s.aiEnabled){
+    panel.innerHTML = `<div style="border-top:1px solid var(--line);margin-top:14px;padding-top:10px">
+      <p class="muted">AI支援（ローカルAI・Ollama）は無効です。使う場合は設定画面で有効にしてください。クラウドAIは使いません。</p></div>`;
+    return;
+  }
+  panel.innerHTML = `<div style="border-top:1px solid var(--line);margin-top:14px;padding-top:10px">
+    <h4 class="sect" style="margin:0">AI支援（ローカルAI・Ollama）― 所見の推敲</h4>
+    <p class="muted">対象の節を選んで「推敲案を作る」を押すと、氏名を番号・イニシャルに置き換えた文面のプレビューが出ます。内容を確認・編集してから送信します。候補は自動では保存されず、「採用する」を押したときだけ下書きに入ります。Level 3 の記録は AI の対象外です。</p>
+    <div class="rowflex"><span style="flex:1">対象の節 <select class="t" id="aiSec">${tpl.sections.map(sec=>`<option value="${sec.key}">${esc(sec.label)}</option>`).join("")}</select></span>
+    <button class="btn" id="aiPreviewBtn">推敲案を作る（プレビュー）</button></div>
+    <div id="aiPreviewBox"></div>
+    <div id="aiResultBox"></div></div>`;
+  document.getElementById("aiPreviewBtn").onclick = ()=>{
+    const secId = document.getElementById("aiSec").value;
+    const ta = document.getElementById("cmSec_"+secId);
+    const original = ta ? ta.value : "";
+    if (!original.trim()){ toast("対象の節に下書きがありません"); return; }
+    const m0 = state.memberships.find(m=>m.studentId===st.id);
+    const reps = [];
+    if (st.name) reps.push({ from: st.name, to: m0 && m0.no!=null ? (m0.no+"番の生徒") : "この生徒" });
+    if (st.initials) reps.push({ from: st.initials, to: "この生徒" });
+    const anon = anonymizeText(original, reps);
+    const box = document.getElementById("aiPreviewBox");
+    box.innerHTML = `<label class="f">送信前プレビュー（置換済み・編集できます）</label>
+      <textarea class="t" id="aiAnonText" style="min-height:90px">${esc(anon)}</textarea>
+      <p class="muted">この文面が、この PC の Ollama（${esc(s.aiHost||"http://127.0.0.1:11434")}）にだけ送られます。外部には送信されません。</p>
+      <button class="btn gold" id="aiSendBtn">この内容で送信する</button>`;
+    document.getElementById("aiSendBtn").onclick = async ()=>{
+      const sendText = document.getElementById("aiAnonText").value;
+      const rbox = document.getElementById("aiResultBox");
+      rbox.innerHTML = `<p class="muted">生成中です…（PC の Ollama が応答するまで時間がかかることがあります）</p>`;
+      try {
+        const out = await aiGenerate("次の所見文を、意味を変えずに、より自然で温かみのある日本語に推敲してください。推敲した文だけを返してください。\n\n" + sendText);
+        if (!out.trim()) throw new Error("空の応答が返りました");
+        rbox.innerHTML = `<label class="f">AI の候補（まだ下書きには入っていません）</label>
+          <div class="card" style="margin:6px 0" id="aiCandidate">${esc(out.trim())}</div>
+          <button class="btn gold" id="aiAdoptBtn">この候補を下書きに採用する</button>`;
+        document.getElementById("aiAdoptBtn").onclick = ()=>{
+          const target = document.getElementById("cmSec_"+secId);
+          if (target){ target.value = out.trim(); target.dispatchEvent(new Event("input", { bubbles: true })); }
+          toast("候補を下書きに入れました。「下書きを保存」で確定してください");
+        };
+      } catch (e){
+        rbox.innerHTML = `<p style="color:var(--danger)">AI の生成に失敗しました：${esc(e.message||String(e))}<br>PC で Ollama が起動しているか、設定の接続先・モデル名と、環境変数 OLLAMA_ORIGINS=* の設定を確認してください。</p>`;
+      }
+    };
+  };
+}
+
+// ===== 第3期：分掌・委員会（duties）＋業務記録 =====
+function openDutySheet(duty){
+  const isNew = !duty;
+  duty = duty || { id: uuid(), yearId: state.currentYearId, kind: "duty", name: "", role: "", memo: "", level: 1 };
+  openSheet(`
+    <h3 class="sect" style="margin-top:0">${isNew?"分掌・委員会を追加":"分掌・委員会を編集"}</h3>
+    <label class="f">種別</label><select class="t" id="duKind">${DUTY_KINDS.map(k=>`<option value="${k.id}" ${duty.kind===k.id?"selected":""}>${k.label}</option>`).join("")}</select>
+    <label class="f">名称</label><input class="t" id="duName" value="${esc(duty.name||"")}" placeholder="例：教務部／3学年会">
+    <label class="f">自分の役割</label><input class="t" id="duRole" value="${esc(duty.role||"")}" placeholder="例：主任／担当">
+    <label class="f">メモ</label><textarea class="t" id="duMemo">${esc(duty.memo||"")}</textarea>
+    ${sheetSaveRow("duSave", isNew?null:"duDelete")}`);
+  bindSheetCancel();
+  document.getElementById("duSave").onclick = async ()=>{
+    duty.kind = document.getElementById("duKind").value;
+    duty.name = document.getElementById("duName").value;
+    duty.role = document.getElementById("duRole").value;
+    duty.memo = document.getElementById("duMemo").value;
+    duty.yearId = state.currentYearId; duty.level = 1;
+    await dbPut("duties", duty);
+    state.selectedDutyId = duty.id;
+    closeSheet(); toast("保存しました"); render();
+  };
+  const del = document.getElementById("duDelete");
+  if (del) del.onclick = async ()=>{ await dbDelete("duties", duty.id); if (state.selectedDutyId===duty.id) state.selectedDutyId = null; closeSheet(); toast("削除しました"); render(); };
+}
+
+function openWorkRecordSheet(dutyId, rec){
+  const isNew = !rec;
+  rec = rec || { id: uuid(), dutyId: dutyId||null, yearId: state.currentYearId, date: todayString(), kind: "meeting",
+    title: "", body: "", place: "", cost: "", learning: "", level: 1 };
+  openSheet(`
+    <h3 class="sect" style="margin-top:0">${isNew?"業務の記録を追加":"業務の記録を編集"}</h3>
+    <div class="rowflex"><span style="flex:1">日付 <input class="t" type="date" id="wrDate" value="${esc(rec.date||todayString())}"></span>
+    <span style="flex:1">種別 <select class="t" id="wrKind">${WORK_RECORD_KINDS.map(k=>`<option value="${k.id}" ${rec.kind===k.id?"selected":""}>${k.label}</option>`).join("")}</select></span></div>
+    <label class="f">件名</label><input class="t" id="wrTitle" value="${esc(rec.title||"")}">
+    <label class="f">内容・議事</label><textarea class="t" id="wrBody" style="min-height:110px">${esc(rec.body||"")}</textarea>
+    <div class="rowflex">${phraseBtnHtml("wrBody")}<span class="muted">会議メモはその場で ToDo に切り出せます（保存後にボタンが出ます）</span></div>
+    <label class="f">出張先・研修会場（出張・研修のとき）</label><input class="t" id="wrPlace" value="${esc(rec.place||"")}">
+    <label class="f">旅費メモ（出張のとき）</label><input class="t" id="wrCost" value="${esc(rec.cost||"")}">
+    <label class="f">学び・所感（研修のとき）</label><textarea class="t" id="wrLearning">${esc(rec.learning||"")}</textarea>
+    ${sheetSaveRow("wrSave", isNew?null:"wrDelete")}`);
+  bindSheetCancel();
+  document.getElementById("wrSave").onclick = async ()=>{
+    rec.dutyId = dutyId||null;
+    rec.date = document.getElementById("wrDate").value||todayString();
+    rec.kind = document.getElementById("wrKind").value;
+    rec.title = document.getElementById("wrTitle").value;
+    rec.body = document.getElementById("wrBody").value;
+    rec.place = document.getElementById("wrPlace").value;
+    rec.cost = document.getElementById("wrCost").value;
+    rec.learning = document.getElementById("wrLearning").value;
+    rec.yearId = state.currentYearId; rec.level = 1;
+    await dbPut("workRecords", rec);
+    closeSheet(); toast("業務の記録を保存しました"); render();
+  };
+  const del = document.getElementById("wrDelete");
+  if (del) del.onclick = async ()=>{ await dbDelete("workRecords", rec.id); closeSheet(); toast("削除しました"); render(); };
+}
+
+function openTodoSheet(todo, preset){
+  const isNew = !todo;
+  todo = todo || { id: uuid(), yearId: state.currentYearId, title: "", dueDate: "", priority: "normal", done: false,
+    originType: preset && preset.originType || "", originId: preset && preset.originId || "", level: 1 };
+  openSheet(`
+    <h3 class="sect" style="margin-top:0">${isNew?"ToDoを追加":"ToDoを編集"}</h3>
+    ${todo.originType?`<p class="muted">出所：${todo.originType==="workRecord"?"会議メモ（業務記録）から切り出し":esc(todo.originType)} ― 元の記録へのリンクを持っています</p>`:""}
+    <label class="f">内容</label><input class="t" id="tdTitle" value="${esc(todo.title||"")}">
+    <div class="rowflex"><span style="flex:1">期限 <input class="t" type="date" id="tdDue" value="${esc(todo.dueDate||"")}"></span>
+    <span style="flex:1">優先度 <select class="t" id="tdPri">${TODO_PRIORITIES.map(k=>`<option value="${k.id}" ${todo.priority===k.id?"selected":""}>${k.label}</option>`).join("")}</select></span></div>
+    <label class="f"><input type="checkbox" id="tdDone" ${todo.done?"checked":""} style="width:22px;height:22px;vertical-align:middle"> 完了</label>
+    ${sheetSaveRow("tdSave", isNew?null:"tdDelete")}`);
+  bindSheetCancel();
+  document.getElementById("tdSave").onclick = async ()=>{
+    todo.title = document.getElementById("tdTitle").value;
+    if (!todo.title.trim()){ toast("内容を入力してください"); return; }
+    todo.dueDate = document.getElementById("tdDue").value;
+    todo.priority = document.getElementById("tdPri").value;
+    todo.done = document.getElementById("tdDone").checked;
+    todo.yearId = state.currentYearId; todo.level = 1;
+    await dbPut("todos", todo);
+    closeSheet(); toast("ToDoを保存しました"); render();
+  };
+  const del = document.getElementById("tdDelete");
+  if (del) del.onclick = async ()=>{ await dbDelete("todos", todo.id); closeSheet(); toast("削除しました"); render(); };
+}
+
+async function renderDuties(root){
+  const duties = await getDutiesByYear(state.currentYearId);
+  if (!state.selectedDutyId && duties.length) state.selectedDutyId = duties[0].id;
+  const sel = duties.find(d=>d.id===state.selectedDutyId) || null;
+  let h = `<div class="rowflex">${backHomeBtn("duHome")}</div>
+  <h2 class="viewtitle">分掌・委員会</h2>
+  <div class="rowflex">${duties.map(d=>`<button class="btn small ${sel&&sel.id===d.id?"gold":"ghost"}" data-duty="${d.id}">${esc(d.name||"（名称なし）")}</button>`).join("")}
+  <button class="btn small" id="duAdd">＋ 分掌を追加</button></div>`;
+  if (sel){
+    const records = (await getWorkRecordsByDuty(sel.id)).sort((a,b)=> (a.date||"")<(b.date||"")?1:-1);
+    h += `<div class="card"><h3 class="sect" style="margin-top:0">${esc(sel.name||"")} <span class="muted" style="font-size:14px">${esc(dutyKindLabel(sel.kind))}${sel.role?` ／ ${esc(sel.role)}`:""}</span></h3>
+    ${sel.memo?`<p>${esc(sel.memo)}</p>`:""}
+    <div class="rowflex"><button class="btn small" id="duEdit">分掌を編集</button>
+    <button class="btn small gold" id="wrAdd">＋ 業務の記録を追加</button></div>
+    <h4 class="sect">業務の記録（会議・議事録・メモ・出張・研修）</h4>
+    ${records.map(r=>`<div class="listitem" data-wr="${r.id}"><span class="muted">${esc(r.date||"")}</span> <span class="chip">${esc(workRecordKindLabel(r.kind))}</span>
+      <br><span class="t">${esc(r.title||"（件名なし）")}</span>
+      ${r.body?`<br>${esc(r.body.slice(0,120))}${r.body.length>120?"…":""}`:""}
+      ${r.place?`<br><span class="muted">場所：${esc(r.place)}</span>`:""}
+      <div style="margin-top:4px"><button class="btn small" data-wr-todo="${r.id}">この記録から ToDo を作る</button></div></div>`).join("") || `<p class="muted">記録はまだありません。</p>`}
+    </div>`;
+  } else {
+    h += `<div class="card"><p class="muted">分掌・委員会・学年会などを登録すると、会議の記録や議事録、出張・研修の記録を紐づけて残せます。</p></div>`;
+  }
+  root.innerHTML = h;
+  bindHome("duHome");
+  document.getElementById("duAdd").onclick = ()=>openDutySheet(null);
+  root.querySelectorAll("[data-duty]").forEach(el=>el.onclick = ()=>{ state.selectedDutyId = el.dataset.duty; render(); });
+  if (sel){
+    document.getElementById("duEdit").onclick = ()=>openDutySheet(sel);
+    document.getElementById("wrAdd").onclick = ()=>openWorkRecordSheet(sel.id, null);
+    root.querySelectorAll("[data-wr]").forEach(el=>el.onclick = async (e)=>{
+      if (e.target.closest("[data-wr-todo]")) return;
+      const rec = await dbGet("workRecords", el.dataset.wr);
+      if (rec) openWorkRecordSheet(sel.id, rec);
+    });
+    root.querySelectorAll("[data-wr-todo]").forEach(btn=>btn.onclick = (e)=>{
+      e.stopPropagation();
+      openTodoSheet(null, { originType: "workRecord", originId: btn.dataset.wrTodo });
+    });
+  }
+}
+
+// ===== 第3期：部活動（club）=====
+function openClubActivitySheet(groupId, rec){
+  const isNew = !rec;
+  rec = rec || { id: uuid(), groupId, date: todayString(), yearId: state.currentYearId, level: 2,
+    kind: "practice", result: "", note: "", costMemo: "" };
+  openSheet(`
+    <h3 class="sect" style="margin-top:0">${isNew?"活動実績を追加":"活動実績を編集"}</h3>
+    <div class="rowflex"><span style="flex:1">日付 <input class="t" type="date" id="clDate" value="${esc(rec.date||todayString())}"></span>
+    <span style="flex:1">種別 <select class="t" id="clKind">${CLUB_ACTIVITY_KINDS.map(k=>`<option value="${k.id}" ${rec.kind===k.id?"selected":""}>${k.label}</option>`).join("")}</select></span></div>
+    <label class="f">結果（大会・試合のとき）</label><input class="t" id="clResult" value="${esc(rec.result||"")}">
+    <label class="f">活動メモ</label><textarea class="t" id="clNote">${esc(rec.note||"")}</textarea>
+    <div class="rowflex">${phraseBtnHtml("clNote")}</div>
+    <label class="f">部費・備品メモ（台帳ではなくメモの範囲です）</label><input class="t" id="clCost" value="${esc(rec.costMemo||"")}">
+    ${isNew?`<div style="margin-top:8px"><button class="btn small ghost" id="clDup">前回を複製</button></div>`:""}
+    ${sheetSaveRow("clSave", isNew?null:"clDelete")}`);
+  bindSheetCancel();
+  const dup = document.getElementById("clDup");
+  if (dup) dup.onclick = async ()=>{
+    const list = await getClubActivitiesByGroup(groupId);
+    const dec = [];
+    for (const r of list){ const d = await decryptMerge(r); if (!d.decryptError) dec.push(d); }
+    dec.sort((a,b)=> (a.date||"")<(b.date||"")?1:-1);
+    if (!dec.length){ toast("複製できる前回の実績がありません"); return; }
+    const p = dec[0];
+    document.getElementById("clKind").value = p.kind||"practice";
+    document.getElementById("clResult").value = p.result||"";
+    document.getElementById("clNote").value = p.note||"";
+    document.getElementById("clCost").value = p.costMemo||"";
+    toast("前回の実績を読み込みました（日付は今日のままです）");
+  };
+  document.getElementById("clSave").onclick = async ()=>{
+    await putEnc("clubActivities",
+      { id: rec.id, groupId, date: document.getElementById("clDate").value||todayString(), yearId: state.currentYearId, level: 2 },
+      { kind: document.getElementById("clKind").value, result: document.getElementById("clResult").value,
+        note: document.getElementById("clNote").value, costMemo: document.getElementById("clCost").value });
+    closeSheet(); toast("活動実績を保存しました"); render();
+  };
+  const del = document.getElementById("clDelete");
+  if (del) del.onclick = async ()=>{ await dbDelete("clubActivities", rec.id); closeSheet(); toast("削除しました"); render(); };
+}
+
+async function renderClub(root){
+  const clubs = state.groups.filter(g=>g.kind==="club");
+  if (!state.selectedClubId && clubs.length) state.selectedClubId = clubs[0].id;
+  const sel = clubs.find(g=>g.id===state.selectedClubId) || null;
+  let h = `<div class="rowflex">${backHomeBtn("clHome")}</div>
+  <h2 class="viewtitle">部活動</h2>
+  <div class="rowflex">${clubs.map(g=>`<button class="btn small ${sel&&sel.id===g.id?"gold":"ghost"}" data-club="${g.id}">${esc(g.name)}</button>`).join("")}
+  <button class="btn small" id="clGoRoster">名簿で部を作る・部員を入れる</button></div>`;
+  if (!sel){
+    h += `<div class="card"><p class="muted">部活動のグループがまだありません。名簿画面で種別「部活動」のグループを作り、部員を登録してください。予定は行事カレンダーと共通で、ここには部の予定だけが並びます。</p></div>`;
+    root.innerHTML = h; bindHome("clHome");
+    document.getElementById("clGoRoster").onclick = ()=>{ state.view="roster"; render(); };
+    return;
+  }
+  const members = state.memberships.filter(m=>m.groupId===sel.id)
+    .map(m=>({ m, st: studentById(m.studentId) })).filter(x=>x.st)
+    .sort((a,b)=> (a.m.number||0)-(b.m.number||0));
+  const profilesRaw = [];
+  for (const x of members){
+    const list = await dbGetByIndex("memberProfiles", "byStudent", x.st.id);
+    const mine = list.filter(p=>p.groupId===sel.id);
+    for (const p of mine){ const d = await decryptMerge(p); if (!d.decryptError) profilesRaw.push(d); }
+  }
+  const profileOf = (sid)=> profilesRaw.find(p=>p.studentId===sid) || null;
+  const clubEvents = state.eventsCache.filter(e=>e.groupId===sel.id)
+    .sort((a,b)=> (a.startDate||"")<(b.startDate||"")?-1:1);
+  const actsRaw = await getClubActivitiesByGroup(sel.id);
+  const acts = [];
+  for (const r of actsRaw){ const d = await decryptMerge(r); if (!d.decryptError) acts.push(d); }
+  acts.sort((a,b)=> (a.date||"")<(b.date||"")?1:-1);
+  h += `<div class="card"><h3 class="sect" style="margin-top:0">${esc(sel.name)} ― 部員（${members.length}名）</h3>
+  ${members.map(x=>{
+    const prof = profileOf(x.st.id);
+    return `<div class="listitem" data-club-member="${x.st.id}"><span class="t">${esc(displayNameOf(x.st, sel.id))}</span>
+      <span class="muted">役割：${esc(prof && prof.role ? prof.role : "（未設定）")} ／ 担当：${esc(prof && prof.position ? prof.position : "（未設定）")}</span>
+      <br><span class="muted">タップで役割・担当を編集（カルテの保護者連絡とは同じ記録を共有します）</span></div>`;
+  }).join("") || `<p class="muted">部員がまだいません。名簿画面でこの部に生徒を追加してください。</p>`}
+  </div>
+  <div class="card"><h3 class="sect" style="margin-top:0">この部の予定（行事カレンダーと共通）</h3>
+  ${clubEvents.map(e=>`<div class="listitem" data-club-event="${e.id}"><span class="muted">${esc(e.startDate)}${e.endDate&&e.endDate!==e.startDate?` 〜 ${esc(e.endDate)}`:""}</span>
+    <span class="chip" style="background:${esc(categoryColor(e.category))};color:#fff">${esc(categoryLabel(e.category))}</span>
+    <br><span class="t">${esc(state.privacyOn?mask(e.title):e.title)}</span></div>`).join("") || `<p class="muted">予定はまだありません。</p>`}
+  <button class="btn small gold" id="clEventAdd">＋ この部の予定を追加</button></div>
+  <div class="card"><h3 class="sect" style="margin-top:0">活動実績</h3>
+  ${acts.map(r=>`<div class="listitem" data-club-act="${r.id}"><span class="muted">${esc(r.date||"")}</span> <span class="chip">${esc(clubActivityKindLabel(r.kind))}</span>
+    ${r.result?`<br><span class="t">${esc(state.privacyOn?mask(r.result):r.result)}</span>`:""}
+    ${r.note?`<br>${esc(state.privacyOn?mask(r.note):r.note)}`:""}
+    ${r.costMemo?`<br><span class="muted">部費・備品：${esc(state.privacyOn?mask(r.costMemo):r.costMemo)}</span>`:""}</div>`).join("") || `<p class="muted">実績はまだありません。</p>`}
+  <button class="btn small gold" id="clActAdd">＋ 活動実績を追加</button></div>`;
+  root.innerHTML = h;
+  bindHome("clHome");
+  document.getElementById("clGoRoster").onclick = ()=>{ state.view="roster"; render(); };
+  root.querySelectorAll("[data-club]").forEach(el=>el.onclick = ()=>{ state.selectedClubId = el.dataset.club; render(); });
+  root.querySelectorAll("[data-club-member]").forEach(el=>el.onclick = async ()=>{
+    const sid = el.dataset.clubMember;
+    const prof = profileOf(sid) || { id: uuid(), studentId: sid, groupId: sel.id, yearId: state.currentYearId, level: 2, role: "", position: "", note: "" };
+    openSheet(`
+      <h3 class="sect" style="margin-top:0">部員の役割・担当 ― ${esc(displayNameOf(studentById(sid), sel.id))}</h3>
+      <label class="f">役割（主将・副主将・部長など）</label><input class="t" id="mpRole" value="${esc(prof.role||"")}">
+      <label class="f">担当（パート・ポジションなど）</label><input class="t" id="mpPos" value="${esc(prof.position||"")}">
+      <label class="f">メモ</label><textarea class="t" id="mpNote">${esc(prof.note||"")}</textarea>
+      <div class="rowflex" style="margin-top:12px"><button class="btn gold" id="mpSave">保存する</button>
+      <button class="btn" id="mpGoStudent">カルテを開く</button>
+      <button class="btn ghost" id="mpCancel">キャンセル</button></div>`);
+    document.getElementById("mpCancel").onclick = ()=>closeSheet();
+    document.getElementById("mpGoStudent").onclick = ()=>{ closeSheet(); state.selectedStudentId = sid; state.view = "student"; render(); };
+    document.getElementById("mpSave").onclick = async ()=>{
+      await putEnc("memberProfiles",
+        { id: prof.id, studentId: sid, groupId: sel.id, yearId: state.currentYearId, level: 2 },
+        { role: document.getElementById("mpRole").value, position: document.getElementById("mpPos").value, note: document.getElementById("mpNote").value });
+      closeSheet(); toast("保存しました"); render();
+    };
+  });
+  document.getElementById("clEventAdd").onclick = ()=>openEventSheet(null, todayString(), { category: "club", groupId: sel.id });
+  root.querySelectorAll("[data-club-event]").forEach(el=>el.onclick = ()=>{
+    const ev = state.eventsCache.find(e=>e.id===el.dataset.clubEvent);
+    if (ev) openEventSheet(ev);
+  });
+  document.getElementById("clActAdd").onclick = ()=>openClubActivitySheet(sel.id, null);
+  root.querySelectorAll("[data-club-act]").forEach(el=>el.onclick = async ()=>{
+    const rec = await getEnc("clubActivities", el.dataset.clubAct);
+    if (rec && !rec.decryptError) openClubActivitySheet(sel.id, rec);
+  });
+}
+
+// ===== 第3期：統合ToDo（todos）=====
+async function renderTodos(root){
+  const all = await getTodosByYear(state.currentYearId);
+  const today = todayString();
+  const open = all.filter(t=>!t.done).sort((a,b)=>{
+    const da = a.dueDate||"9999-12-31", db = b.dueDate||"9999-12-31";
+    if (da!==db) return da<db?-1:1;
+    return (TODO_PRIORITY_ORDER[a.priority]??1)-(TODO_PRIORITY_ORDER[b.priority]??1);
+  });
+  const done = all.filter(t=>t.done);
+  const originLabel = async (t)=>{
+    if (!t.originType) return "";
+    if (t.originType==="workRecord"){
+      const wr = await dbGet("workRecords", t.originId);
+      return wr ? `出所：会議メモ「${esc(wr.title||"（件名なし）")}」（${esc(wr.date||"")}）` : "出所：会議メモ";
+    }
+    return "出所：" + esc(t.originType);
+  };
+  let h = `<div class="rowflex">${backHomeBtn("tdHome")}</div>
+  <h2 class="viewtitle">ToDo</h2>
+  <div class="card"><h3 class="sect" style="margin-top:0">未完了（${open.length}件）</h3>
+  ${open.length ? (await Promise.all(open.map(async t=>`<div class="listitem" data-todo="${t.id}">
+    <span class="t">${esc(state.privacyOn?mask(t.title):t.title)}</span>
+    <br><span class="muted">${t.dueDate?`期限 ${esc(t.dueDate)}${t.dueDate<today?" ⚠ 期限超過":""}`:"期限なし"} ／ 優先度 ${esc(todoPriorityLabel(t.priority))}</span>
+    ${(await originLabel(t))?`<br><span class="muted">${await originLabel(t)}</span>`:""}
+    <div style="margin-top:4px"><button class="btn small gold" data-todo-done="${t.id}">完了にする</button></div></div>`))).join("")
+    : `<p class="muted">未完了の ToDo はありません。</p>`}
+  <button class="btn gold" id="tdAdd">＋ ToDoを追加</button></div>
+  ${done.length?`<div class="card"><h3 class="sect" style="margin-top:0">完了（${done.length}件）</h3>
+  ${done.map(t=>`<div class="listitem" data-todo="${t.id}"><span class="muted" style="text-decoration:line-through">${esc(state.privacyOn?mask(t.title):t.title)}</span></div>`).join("")}</div>`:""}`;
+  root.innerHTML = h;
+  bindHome("tdHome");
+  document.getElementById("tdAdd").onclick = ()=>openTodoSheet(null, null);
+  root.querySelectorAll("[data-todo]").forEach(el=>el.onclick = async (e)=>{
+    if (e.target.closest("[data-todo-done]")) return;
+    const t = await dbGet("todos", el.dataset.todo);
+    if (t) openTodoSheet(t, null);
+  });
+  root.querySelectorAll("[data-todo-done]").forEach(btn=>btn.onclick = async (e)=>{
+    e.stopPropagation();
+    const t = await dbGet("todos", btn.dataset.todoDone);
+    if (t){ t.done = true; await dbPut("todos", t); toast("完了にしました"); render(); }
+  });
+}
+
+// ===== 第3期：ヘルプ目次（helpindex）=====
+function renderHelpIndex(root){
+  const q = (state.helpQuery||"").trim();
+  const entries = AREAS.filter(a=>a.enabled && HELP_TEXTS[a.id]);
+  const hit = (a)=>{
+    if (!q) return true;
+    const ht = HELP_TEXTS[a.id];
+    const hay = [a.name, (ht.can||[]).join(" "), (ht.steps||[]).join(" "), (ht.notes||[]).join(" "), Array.isArray(ht.keywords) ? ht.keywords.join(" ") : (ht.keywords||"")].join(" ");
+    return hay.includes(q);
+  };
+  const list = entries.filter(hit);
+  root.innerHTML = `<div class="rowflex">${backHomeBtn("hiHome")}</div>
+  <h2 class="viewtitle">ヘルプ目次</h2>
+  <div class="card"><label class="f">キーワードで探す</label>
+  <div class="rowflex"><input class="t" id="hiQuery" value="${esc(state.helpQuery||"")}" placeholder="例：出席、印刷、暗号化" style="flex:1">
+  <button class="btn" id="hiSearch">検索</button></div>
+  <p class="muted">各画面のヘッダーにある「？ ヘルプ」ボタンからも、その画面のヘルプを直接開けます。</p></div>
+  ${list.map(a=>`<div class="listitem" data-hi="${a.id}"><span class="t">${esc(a.icon||"")} ${esc(a.name)}</span>
+    <br><span class="muted">${esc((HELP_TEXTS[a.id].can||[])[0]||"")}</span>
+    <div style="margin-top:4px"><button class="btn small" data-hi-open="${a.id}">この画面のヘルプを開く</button>
+    <button class="btn small ghost" data-hi-go="${a.id}">画面へ移動</button></div></div>`).join("") || `<p class="muted">該当するヘルプがありません。キーワードを変えてみてください。</p>`}`;
+  bindHome("hiHome");
+  const doSearch = ()=>{ state.helpQuery = document.getElementById("hiQuery").value; render(); };
+  document.getElementById("hiSearch").onclick = doSearch;
+  document.getElementById("hiQuery").addEventListener("keydown", (e)=>{ if (e.key==="Enter") doSearch(); });
+  root.querySelectorAll("[data-hi-open]").forEach(btn=>btn.onclick = (e)=>{ e.stopPropagation(); openHelp(btn.dataset.hiOpen); });
+  const go = (view)=>{ state.view = view; render(); };
+  root.querySelectorAll("[data-hi-go]").forEach(btn=>btn.onclick = (e)=>{ e.stopPropagation(); go(btn.dataset.hiGo); });
+  root.querySelectorAll("[data-hi]").forEach(el=>el.onclick = (e)=>{ if (e.target.closest("button")) return; openHelp(el.dataset.hi); });
 }
 
 // ===== 起動 =====
