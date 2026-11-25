@@ -123,6 +123,7 @@ table.plain th{background:var(--paper2);color:var(--navy)}
 .bar{height:14px;background:#e7dfc9;border-radius:7px;overflow:hidden}
 .bar>div{height:100%;background:var(--ok)}
 input.t.smallnum{max-width:110px;display:inline-block}
+.samplebanner{background:#fdf6dd;border-bottom:3px solid var(--gold);color:var(--navy);padding:10px 14px;font-size:16px;font-weight:700;text-align:center}
 .warnbox{background:#fdf0f0;border:1.5px solid var(--danger);border-radius:10px;padding:10px 12px;margin:10px 0}
 </style>
 </head>
@@ -130,7 +131,7 @@ input.t.smallnum{max-width:110px;display:inline-block}
 
 <header id="appHeader" class="hidden">
   <div class="hrow">
-    <div class="appname">KyomuNote<small>デジタル教務手帳 v3.0.0</small></div>
+    <div class="appname">KyomuNote<small>デジタル教務手帳 v3.1.0</small></div>
     <div class="hspacer"></div>
     <span id="headerYear" class="muted" style="color:#cdbf9d"></span>
     <button class="hbtn" id="helpBtn" title="この画面のヘルプ">？ ヘルプ</button>
@@ -146,6 +147,7 @@ input.t.smallnum{max-width:110px;display:inline-block}
     <button class="hbtn" data-nav="courses">講座</button>
     <button class="hbtn" data-nav="settings">設定</button>
   </nav>
+  <div id="sampleBanner" class="samplebanner hidden">サンプルデータ表示中 ― これは練習用の架空のデータです</div>
 </header>
 
 <main id="viewRoot" class="hidden"></main>
@@ -155,7 +157,7 @@ input.t.smallnum{max-width:110px;display:inline-block}
   <div class="lockbox">
     <div class="logotitle">
       <div class="big">KyomuNote</div>
-      <div class="sub">デジタル教務手帳 ― 第3期 v3.0.0</div>
+      <div class="sub">デジタル教務手帳 ― 第3期 v3.1.0</div>
       <p class="muted">PINを入力してロックを解除してください。<br>データはこの端末の中だけに保存されます。</p>
     </div>
     <div class="pindots" id="pinDots">○○○○</div>
@@ -1449,7 +1451,7 @@ function openHelp(viewId){
 }
 
 // ===== 状態 =====
-const APP_VERSION = "3.0.0";
+const APP_VERSION = "3.1.0";
 const SETTINGS_KEY = "kyomunote.settings.v1";
 const KEYCHECK_PLAIN = "KyomuNote-KeyCheck-v1";
 const state = {
@@ -1492,6 +1494,16 @@ function toast(msg){
 }
 function mask(s){ return maskText(s, 1, state.privacyOn); }
 function currentYear(){ return state.years.find(y=>y.id===state.currentYearId) || null; }
+function currentYearDateRange(){
+  // サンプル年度（9999）は年度レコード自身の相対日付範囲を使う。
+  // yearRange(9999) は endDate が "10000-03-31" となり文字列比較で startDate より小さく、
+  // IDBKeyRange.bound が例外を投げるため、そのままでは日付範囲の検索ができない。
+  if (typeof isSampleYear === "function" && isSampleYear()){
+    const y = currentYear();
+    if (y && y.startDate && y.endDate) return { startDate: y.startDate, endDate: y.endDate };
+  }
+  return yearRange(state.currentYearId);
+}
 function courseName(id){ const c = state.courses.find(x=>x.id===id); return c ? `${c.name}（${c.classLabel}）` : ""; }
 
 // ===== WebCrypto（PIN・鍵導出） =====
@@ -1790,6 +1802,302 @@ async function loadYearData(){
   // 第3期：所見テンプレート（カスタム分）
   state.docTemplatesCache = await dbGetAll("docTemplates");
 }
+// ===== お試しサンプルデータ（架空の練習用データ・年度 9999）=====
+const SAMPLE_YEAR_ID = 9999;
+function isSampleYear(yid){
+  const id = yid == null ? state.currentYearId : yid;
+  return Number(id) === SAMPLE_YEAR_ID;
+}
+async function sampleYearExists(){
+  const y = await dbGet("years", SAMPLE_YEAR_ID);
+  return !!y;
+}
+function confirmSheet(title, bodyText, okLabel, onOk){
+  openSheet(`
+    <h3 class="sect" style="margin-top:0">${esc(title)}</h3>
+    <p>${esc(bodyText)}</p>
+    <div class="rowflex" style="margin-top:12px">
+      <button class="btn gold" id="cfOk">${esc(okLabel)}</button>
+      <button class="btn ghost" id="cfCancel">やめる</button></div>`);
+  document.getElementById("cfCancel").onclick = ()=>closeSheet();
+  document.getElementById("cfOk").onclick = async ()=>{ closeSheet(); await onOk(); };
+}
+async function switchToYearId(yid, view){
+  state.years = (await dbGetAll("years")).sort((a,b)=>a.id-b.id);
+  state.currentYearId = yid;
+  saveSettings({ currentYearId: yid });
+  await loadYearData();
+  state.monthCursor = null;
+  state.view = view || "home";
+  render();
+}
+async function insertSampleData(){
+  if (await sampleYearExists()) return { already: true };
+  if (!state.key) throw new Error("鍵がありません（ロック中です）");
+  const today = todayString();
+  const Y = SAMPLE_YEAR_ID;
+  const T1 = "sample-T1";
+  // --- 年度・学期（相対日付。5桁年の日付演算を避けるため yearRange は使わない） ---
+  await dbPut("years", { id: Y, startDate: addDays(today,-60), endDate: addDays(today,330), termSystem: "3", archived: false, sample: true });
+  const sampleTerms = [
+    { id: T1, yearId: Y, name: "1学期", startDate: addDays(today,-45), endDate: addDays(today,75) },
+    { id: "sample-T2", yearId: Y, name: "2学期", startDate: addDays(today,76), endDate: addDays(today,195) },
+    { id: "sample-T3", yearId: Y, name: "3学期", startDate: addDays(today,196), endDate: addDays(today,330) },
+  ];
+  for (const t of sampleTerms) await dbPut("terms", t);
+  // --- グループ ---
+  const G_CLASS = "sample-group-class", G_MATH = "sample-group-math", G_CLUB = "sample-group-club";
+  await dbPut("groups", { id: G_CLASS, yearId: Y, kind: "class", name: "サンプル1組", courseId: null, rosterMode: "full", level: 1 });
+  await dbPut("groups", { id: G_MATH, yearId: Y, kind: "course", name: "数学I・サンプル組", courseId: "sample-course-math", rosterMode: "initials", level: 1 });
+  await dbPut("groups", { id: G_CLUB, yearId: Y, kind: "club", name: "サンプル部", courseId: null, rosterMode: "full", level: 1 });
+  // --- 講座 ---
+  const C_MATH = "sample-course-math", C_JP = "sample-course-japanese", C_EN = "sample-course-english";
+  await dbPut("courses", { id: C_MATH, yearId: Y, subject: "数学", name: "数学I", classLabel: "サンプル組", weeklyPeriods: 5, standardHours: 140, groupId: G_MATH, level: 1 });
+  await dbPut("courses", { id: C_JP, yearId: Y, subject: "国語", name: "現代の国語", classLabel: "サンプル組", weeklyPeriods: 5, standardHours: 105, groupId: null, level: 1 });
+  await dbPut("courses", { id: C_EN, yearId: Y, subject: "英語", name: "英語コミュニケーションI", classLabel: "サンプル組", weeklyPeriods: 5, standardHours: 105, groupId: null, level: 1 });
+  // --- 生徒12名（架空） ---
+  const roster = [
+    ["山田太郎","やまだたろう","Y.T"],["鈴木花子","すずきはなこ","S.H"],["佐藤健","さとうけん","S.K"],
+    ["田中美咲","たなかみさき","T.M"],["高橋翔","たかはししょう","T.S"],["伊藤結衣","いとうゆい","I.Y"],
+    ["渡辺蓮","わたなべれん","W.R"],["中村葵","なかむらあおい","N.A"],["小林颯太","こばやしそうた","K.S"],
+    ["加藤凛","かとうりん","K.R"],["吉田悠真","よしだゆうま","Y.Y"],["山本紗季","やまもとさき","Y.S"],
+  ];
+  const stuIds = roster.map((_,i)=>`sample-student-${i+1}`);
+  for (let i=0;i<roster.length;i++){
+    const [name,kana,label] = roster[i];
+    await putEnc("students", { id: stuIds[i], yearId: Y }, { name, kana, displayLabel: label, memo: "" });
+    await dbPut("memberships", { groupId: G_CLASS, studentId: stuIds[i], no: i+1, yearId: Y });
+    await dbPut("memberships", { groupId: G_MATH, studentId: stuIds[i], no: i+1, yearId: Y });
+  }
+  for (let i=0;i<4;i++) await dbPut("memberships", { groupId: G_CLUB, studentId: stuIds[i], no: i+1, yearId: Y });
+  // --- 座席表（学級・通常・4列×3行） ---
+  const seats = {};
+  stuIds.forEach((sid,i)=>{ seats[seatKey(Math.floor(i/4), i%4)] = sid; });
+  await putEnc("seatPlans",
+    { id: "sample-seat-1", groupId: G_CLASS, yearId: Y, kind: "normal", name: "サンプル座席表", effectiveFrom: addDays(today,-30), rows: 3, cols: 4 },
+    { seats, nonSeats: [] });
+  // --- 基本時間割（月〜金：朝SHR＋1〜3限） ---
+  const timetable = {
+    1: [[1,C_MATH],[2,C_JP],[3,C_EN]],
+    2: [[1,C_JP],[2,C_MATH],[3,C_EN]],
+    3: [[1,C_EN],[2,C_MATH],[3,C_JP]],
+    4: [[1,C_MATH],[2,C_EN],[3,C_JP]],
+    5: [[1,C_JP],[2,C_EN],[3,C_MATH]],
+  };
+  for (let dow=1; dow<=5; dow++){
+    await dbPut("baseSlots", { id: `sample-slot-${dow}-0`, yearId: Y, dayOfWeek: dow, period: 0, kind: "homeroom", courseId: null, label: "SHR", level: 1 });
+    for (const [period, cid] of timetable[dow]){
+      await dbPut("baseSlots", { id: `sample-slot-${dow}-${period}`, yearId: Y, dayOfWeek: dow, period, kind: "lesson", courseId: cid, label: "", level: 1 });
+    }
+  }
+  // --- 単元（数学） ---
+  const units = [
+    { id: "sample-unit-1", courseId: C_MATH, name: "二次関数", order: 1, plannedLessons: 10, level: 1 },
+    { id: "sample-unit-2", courseId: C_MATH, name: "図形と計量", order: 2, plannedLessons: 8, level: 1 },
+    { id: "sample-unit-3", courseId: C_MATH, name: "データの分析", order: 3, plannedLessons: 6, level: 1 },
+  ];
+  for (const u of units) await dbPut("units", u);
+  // --- コマ記録（直近2週間の平日） ---
+  const courseInfo = { [C_MATH]: { subject: "数学" }, [C_JP]: { subject: "国語" }, [C_EN]: { subject: "英語" } };
+  const unitText = { [C_JP]: "サンプル単元：物語文を読む", [C_EN]: "サンプル単元：Unit 5 Daily Life" };
+  const sampleLessons = [];
+  for (let back=13; back>=0; back--){
+    const date = addDays(today,-back);
+    const dow = dayOfWeek(date);
+    if (dow<1 || dow>5) continue;
+    const past = date < today;
+    const mkLesson = (period, courseId, unitName, unitId)=>{
+      const subj = courseId ? courseInfo[courseId].subject : "SHR";
+      const l = { id: lessonKey(date, period), date, period, yearId: Y, termId: T1,
+        courseId: courseId || null, status: "normal",
+        unit: unitName || "", goal: courseId ? `サンプル：${subj}のねらいの例です。` : "",
+        plan: courseId ? `サンプル：${subj}の展開メモの例です。` : "サンプル：朝の連絡と一日の予定を確認する。",
+        board: "", materials: courseId ? "サンプル：教科書とワークシート" : "",
+        progress: past && courseId ? `サンプル：${subj}の進度の記録例です。` : "",
+        reflection: past && courseId ? `サンプル：${subj}の振り返りの例です。` : "",
+        handoff: "", gapMemo: "", shortMemo: past ? "サンプル：一言メモの例です。" : "サンプル：今日の授業の予定です。",
+        hasRecord: false, level: 1, updatedAt: new Date().toISOString(), unitId: unitId || null };
+      l.hasRecord = computeHasRecord(l);
+      return l;
+    };
+    sampleLessons.push(mkLesson(0, null, "", null));
+    for (const [period, cid] of timetable[dow]){
+      let unitName = unitText[cid] || "", unitId = null;
+      if (cid===C_MATH){
+        const u = back>=7 ? units[0] : units[1];
+        unitName = u.name; unitId = u.id;
+      }
+      sampleLessons.push(mkLesson(period, cid, unitName, unitId));
+    }
+  }
+  // lessons の id は実データと同じ決定的キー（日付#時限）のため、同日・同時限に実データの
+  // コマ記録が既にある場合は上書きしない（実データ保護）。そのコマの出欠も作らない。
+  const insertedLessonIds = new Set();
+  for (const l of sampleLessons){
+    const existing = await dbGet("lessons", l.id);
+    if (existing && existing.yearId !== Y) continue;
+    await dbPut("lessons", l);
+    insertedLessonIds.add(l.id);
+  }
+  // --- 行事 ---
+  const events = [
+    { id: "sample-event-1", title: "サンプル：職員会議", startDate: addDays(today,3), endDate: addDays(today,3), category: "duty", memo: "サンプル：行事の登録例です。" },
+    { id: "sample-event-2", title: "サンプル：校内研修", startDate: addDays(today,7), endDate: addDays(today,7), category: "event", memo: "サンプル：研修予定の例です。" },
+    { id: "sample-event-3", title: "サンプル：学年会", startDate: addDays(today,-2), endDate: addDays(today,-2), category: "duty", memo: "" },
+    { id: "sample-event-4", title: "サンプル部 活動予定", startDate: addDays(today,2), endDate: addDays(today,2), category: "club", memo: "サンプル：部活動の予定の例です。", groupId: G_CLUB },
+  ];
+  for (const e of events) await dbPut("events", Object.assign({ yearId: Y, level: 1 }, e));
+  // --- 出欠（過去の数学3件＋SHR1件） ---
+  const pastMath = sampleLessons.filter(l=>insertedLessonIds.has(l.id) && l.courseId===C_MATH && l.date<today).sort((a,b)=>a.date<b.date?-1:1);
+  const pastShr = sampleLessons.filter(l=>insertedLessonIds.has(l.id) && !l.courseId && l.date<today).sort((a,b)=>a.date<b.date?-1:1);
+  const attDefs = [];
+  if (pastMath.length>=3){
+    attDefs.push({ lesson: pastMath[0], groupId: G_MATH, note: "サンプル：全体への連絡事項を確認した。",
+      marks: { [stuIds[2]]: { status: "late", memo: "" }, [stuIds[4]]: { status: "absent", memo: "" } } });
+    attDefs.push({ lesson: pastMath[1], groupId: G_MATH, note: "",
+      marks: { [stuIds[1]]: { status: "nurse", memo: "" }, [stuIds[6]]: { status: "bereavement", memo: "" } } });
+    attDefs.push({ lesson: pastMath[2], groupId: G_MATH, note: "",
+      marks: { [stuIds[3]]: { status: "other", memo: "サンプル：交通機関の乱れのため途中から参加" }, [stuIds[8]]: { status: "late", memo: "" } } });
+  }
+  if (pastShr.length) attDefs.push({ lesson: pastShr[0], groupId: G_CLASS, note: "",
+    marks: { [stuIds[7]]: { status: "absent", memo: "" } } });
+  for (const a of attDefs){
+    await putEnc("attendance",
+      { id: a.lesson.id, date: a.lesson.date, yearId: Y, courseId: a.lesson.courseId || null, groupId: a.groupId },
+      { marks: a.marks, note: a.note });
+  }
+  // --- 課題（数学）＋提出記録 ---
+  const A1 = "sample-assignment-1", A2 = "sample-assignment-2";
+  await dbPut("assignments", { id: A1, courseId: C_MATH, groupId: G_MATH, yearId: Y, termId: T1,
+    title: "サンプル課題１ ワークシート", dueDate: addDays(today,-3), lessonId: null, evalKind: "check",
+    viewWeights: { knowledge: 0, thinking: 0, attitude: 1 }, memo: "", level: 1 });
+  await dbPut("assignments", { id: A2, courseId: C_MATH, groupId: G_MATH, yearId: Y, termId: T1,
+    title: "サンプル課題２ 問題集", dueDate: addDays(today,4), lessonId: null, evalKind: "submitOnly",
+    viewWeights: { knowledge: 0, thinking: 0, attitude: 1 }, memo: "", level: 1 });
+  const states1 = {};
+  const vals = ["○","○","△","○","○","△","○","×","○"];
+  for (let i=0;i<9;i++) states1[stuIds[i]] = { status: "submitted", value: vals[i], memo: "", submittedDate: addDays(today,-3) };
+  states1[stuIds[10]] = { status: "exempt", value: null, memo: "サンプル：免除の例です", submittedDate: "" };
+  await putEnc("submissionRecords", { id: A1, courseId: C_MATH, yearId: Y }, { states: states1 });
+  const states2 = {};
+  for (let i=0;i<6;i++) states2[stuIds[i]] = { status: "submitted", value: null, memo: "", submittedDate: addDays(today,-1) };
+  await putEnc("submissionRecords", { id: A2, courseId: C_MATH, yearId: Y }, { states: states2 });
+  // --- 小テスト（数学）＋スコア＋集計設定 ---
+  const TE1 = "sample-test-1", TE2 = "sample-test-2";
+  await dbPut("tests", { id: TE1, courseId: C_MATH, groupId: G_MATH, yearId: Y, termId: T1,
+    name: "サンプル小テスト１", date: addDays(today,-7), kind: "quiz", maxScore: 50,
+    viewWeights: { knowledge: 1, thinking: 0, attitude: 0 }, memo: "", level: 1 });
+  await dbPut("tests", { id: TE2, courseId: C_MATH, groupId: G_MATH, yearId: Y, termId: T1,
+    name: "サンプル小テスト２", date: addDays(today,-2), kind: "quiz", maxScore: 50,
+    viewWeights: { knowledge: 0.7, thinking: 0.3, attitude: 0 }, memo: "", level: 1 });
+  const scores1 = {}, scores2 = {};
+  const sc1 = [46,42,38,50,35,44,29,41,47,33,40];
+  const sc2 = [40,48,36,45,39,50,34,43,38,46,31,44];
+  for (let i=0;i<11;i++) scores1[stuIds[i]] = { score: sc1[i], absent: false, memo: "" };
+  scores1[stuIds[11]] = { score: null, absent: true, memo: "" };
+  for (let i=0;i<12;i++) scores2[stuIds[i]] = { score: sc2[i], absent: false, memo: "" };
+  await putEnc("scoreRecords", { id: TE1, courseId: C_MATH, yearId: Y }, { scores: scores1 });
+  await putEnc("scoreRecords", { id: TE2, courseId: C_MATH, yearId: Y }, { scores: scores2 });
+  await dbPut("gradeSettings", Object.assign({ id: `${C_MATH}:${T1}`, courseId: C_MATH, termId: T1, yearId: Y, level: 1 }, defaultGradeSettings()));
+  // --- 所見メモ ---
+  const obsDefs = [
+    [0,"knowledge","サンプル：計算の手順を正確に進められていました。",false,-6],
+    [1,"thinking","サンプル：自分の考えを言葉で説明しようとする姿が見られました。",false,-5],
+    [2,"attitude","サンプル：粘り強く課題に取り組んでいました。",true,-4],
+    [3,"none","サンプル：係の仕事を進んで引き受けていました。",false,-3],
+    [4,"knowledge","サンプル：前回の復習内容がよく定着していました。",true,-1],
+  ];
+  for (let i=0;i<obsDefs.length;i++){
+    const [si, vp, text, handoff, off] = obsDefs[i];
+    await putEnc("observations",
+      { id: `sample-obs-${i+1}`, studentId: stuIds[si], courseId: C_MATH, lessonId: null, date: addDays(today,off), yearId: Y },
+      { text, viewpoint: vp, source: "", handoff: !!handoff });
+  }
+  // --- 所見の下書き（山田太郎・通知表・1学期） ---
+  await putEnc("commentDrafts",
+    { id: `${stuIds[0]}:report:${T1}`, studentId: stuIds[0], docKind: "report", termId: T1, yearId: Y, level: 2 },
+    { sections: {
+        knowledge: "授業では計算の手順を一つひとつ確かめながら進める習慣が身に付き、正確に解ける問題が着実に増えてきました。復習にも進んで取り組んでいます。",
+        thinking: "自分の考えをノートに書き表し、友達の解き方と比べながら、よりよい方法を考える姿が見られるようになりました。発表の場面でも理由を添えて話せます。",
+        attitude: "難しい問題にも粘り強く取り組み、分からないところはそのままにせず、質問して解決しようとする姿勢が続いています。家庭学習の記録も安定してきました。",
+        life: "係の仕事を責任を持って行い、クラスの中で困っている友達がいると進んで声をかけて助ける姿が印象的でした。行事の準備でもよく働いていました。",
+      }, status: "draft" });
+  // --- 要確認マーカー ---
+  await putEnc("reviewMarkers",
+    { id: markerId(stuIds[1], "grades", `${C_MATH}:${T1}`), studentId: stuIds[1], targetType: "grades", targetId: `${C_MATH}:${T1}`, yearId: Y, level: 2 },
+    { memo: "サンプル：ここを確認してください", createdAt: new Date().toISOString() });
+  await putEnc("reviewMarkers",
+    { id: markerId(stuIds[0], "comment", `report:${T1}`), studentId: stuIds[0], targetType: "comment", targetId: `report:${T1}`, yearId: Y, level: 2 },
+    { memo: "サンプル：ここを確認してください", createdAt: new Date().toISOString() });
+  // --- ToDo ---
+  await dbPut("todos", { id: "sample-todo-1", yearId: Y, title: "サンプル：提出物の確認をする", dueDate: today, priority: "high", done: false, originType: "", originId: "", level: 1 });
+  await dbPut("todos", { id: "sample-todo-2", yearId: Y, title: "サンプル：来週の教材を準備する", dueDate: addDays(today,7), priority: "normal", done: false, originType: "", originId: "", level: 1 });
+  await dbPut("todos", { id: "sample-todo-3", yearId: Y, title: "サンプル：済んだ仕事の例です", dueDate: addDays(today,-2), priority: "low", done: true, originType: "", originId: "", level: 1 });
+  // --- 分掌＋会議メモ ---
+  await dbPut("duties", { id: "sample-duty-1", yearId: Y, kind: "duty", name: "サンプル分掌（教務）", role: "担当", memo: "サンプル：分掌の登録例です。", level: 1 });
+  await dbPut("workRecords", { id: "sample-work-1", dutyId: "sample-duty-1", yearId: Y, date: addDays(today,-1), kind: "meeting",
+    title: "サンプル会議メモ", body: "サンプル：会議メモの書き方の例です。決定事項と連絡事項を分けて書きます。", place: "", cost: "", learning: "", level: 1 });
+  // --- 部活：部員プロフィール＋活動実績 ---
+  const profDefs = [["部長","パート１"],["副部長","パート２"],["部員","パート１"],["部員","パート３"]];
+  for (let i=0;i<4;i++){
+    await putEnc("memberProfiles",
+      { id: `sample-profile-${i+1}`, studentId: stuIds[i], groupId: G_CLUB, yearId: Y, level: 2 },
+      { role: profDefs[i][0], position: profDefs[i][1], note: "" });
+  }
+  await putEnc("clubActivities",
+    { id: "sample-clubact-1", groupId: G_CLUB, date: addDays(today,-3), yearId: Y, level: 2 },
+    { kind: "practice", result: "", note: "サンプル：基礎練習を中心に活動しました。", costMemo: "サンプル：備品の補充メモです。" });
+  // --- 生徒カルテ例 ---
+  await putEnc("careerRecords",
+    { id: "sample-career-1", studentId: stuIds[0], date: addDays(today,-10), yearId: Y, level: 2 },
+    { kind: "hope", schoolName: "", department: "", note: "サンプル：進路希望の記録例です。希望する進路について話を聞きました。", handoff: false });
+  await putEnc("interviews",
+    { id: "sample-interview-1", studentId: stuIds[1], date: addDays(today,-5), yearId: Y, level: 3 },
+    { kind: "two", participants: "本人・担任", place: "教室", summary: "サンプル：面談の記録例です。学習の様子について話しました。",
+      agreements: "サンプル：家庭学習の進め方を確認しました。", nextSteps: "", handoff: false });
+  await putEnc("careNotes",
+    { id: "sample-care-1", studentId: stuIds[2], yearId: Y, level: 3 },
+    { category: "learning", detail: "サンプル：配慮事項の記録例です。", handling: "サンプル：板書の見やすさに配慮します。", source: "サンプル：本人との面談", active: true, handoff: false });
+  await putEnc("guidanceRecords",
+    { id: "sample-guidance-1", studentId: stuIds[3], caseId: "sample-case-1", date: addDays(today,-4), yearId: Y, level: 3 },
+    { category: "other", title: "サンプル：指導記録の例", detail: "サンプル：指導記録の書き方の例です。",
+      relatedStudents: [], relatedParties: "", reportedToAdmin: false, reportedDate: "", nextAction: "", nextActionDue: "", status: "monitoring", handoff: false });
+  return { already: false };
+}
+function isSampleRecord(rec){
+  if (!rec || typeof rec !== "object") return false;
+  if (rec.yearId === SAMPLE_YEAR_ID) return true;
+  if (typeof rec.id === "string" && rec.id.startsWith("sample-")) return true;
+  for (const k of ["studentId","groupId","courseId","dutyId","originId","caseId","lessonId"]){
+    if (typeof rec[k] === "string" && rec[k].startsWith("sample-")) return true;
+  }
+  return false;
+}
+async function deleteSampleData(){
+  let removed = 0;
+  for (const store of STORE_NAMES){
+    if (store === "meta") continue;
+    const all = await dbGetAll(store);
+    for (const rec of all){
+      if (!isSampleRecord(rec)) continue;
+      if (store === "memberships") await dbDelete(store, [rec.groupId, rec.studentId]);
+      else if (store === "years") await dbDelete(store, rec.id);
+      else await dbDelete(store, rec.id);
+      removed++;
+    }
+  }
+  // 年度レコード（id が数値 9999 のため上の走査でも消えるが、念のため明示する）
+  await dbDelete("years", SAMPLE_YEAR_ID);
+  state.years = (await dbGetAll("years")).sort((a,b)=>a.id-b.id);
+  if (state.currentYearId === SAMPLE_YEAR_ID){
+    state.currentYearId = state.years.length ? state.years[0].id : null;
+    saveSettings({ currentYearId: state.currentYearId });
+    await loadYearData();
+  }
+  return { removed };
+}
+window.__KYOMU__.sample = { insertSampleData, deleteSampleData, sampleYearExists, SAMPLE_YEAR_ID };
+
 function studentById(id){ return state.students.find(x=>x.id===id) || null; }
 function groupMembers(groupId){
   return state.memberships.filter(m=>m.groupId===groupId)
@@ -1853,6 +2161,8 @@ function render(){
   document.querySelectorAll("[data-nav]").forEach(b=>b.classList.toggle("on", b.dataset.nav===state.view));
   const y = currentYear();
   document.getElementById("headerYear").textContent = y ? `${y.id}年度` : "";
+  const sb = document.getElementById("sampleBanner");
+  if (sb) sb.classList.toggle("hidden", !isSampleYear());
   const root = document.getElementById("viewRoot");
   if (state.view==="home") renderHome(root);
   else if (state.view==="today") renderToday(root);
@@ -2138,6 +2448,7 @@ async function renderHome(root){
   const dn = dayNoteOf(today);
   const dueTodos = todosDueList(await getTodosByYear(state.currentYearId), today);
   const markerCount = (await getReviewMarkersByYear(state.currentYearId)).length;
+  const hasSample = await sampleYearExists();
   const areaBtns = AREAS.filter(a=>a.enabled && a.showOnHome && !(state.privacyOn && a.level3)).map(a=>
     `<button class="btn ghost" data-home-area="${a.id}" style="text-align:left;padding:18px;min-height:96px">
        <span style="font-size:24px">${a.icon||""} ${esc(a.name)}</span><br><span class="muted" style="font-size:14px">${esc(a.desc||"")}</span>
@@ -2154,6 +2465,9 @@ async function renderHome(root){
       <button class="btn small" id="homeGoToday">📍 今日の画面を開く</button>
       <button class="btn small ghost" id="homeGoDay">📝 今日の日エリア</button>
     </div>
+    ${isSampleYear() ? `<div class="card" style="border-color:var(--gold)"><h3 class="sect" style="margin-top:0">サンプルデータ表示中</h3><p class="muted" style="margin:4px 0">いま表示しているのは練習用の架空のデータです。終わったら設定画面からサンプルデータを消せます。</p></div>`
+      : hasSample ? `<div class="card"><h3 class="sect" style="margin-top:0">サンプルデータ（お試し）</h3><p class="muted" style="margin:4px 0">サンプルデータは既に入っています。</p><button class="btn gold" id="homeSampleOpen">サンプル年度を開く</button></div>`
+      : `<div class="card"><h3 class="sect" style="margin-top:0">サンプルデータで試す</h3><p class="muted" style="margin:4px 0">架空の生徒・授業・行事などの練習用データを入れて、ひととおり試せます。実データとは別の年度に入るので、混ざりません。</p><button class="btn gold" id="homeSampleInsert">サンプルデータで試す</button></div>`}
     ${dueTodos.length ? `<div class="card" style="border-color:var(--gold)"><h3 class="sect" style="margin-top:0">📌 今日までのToDo（${dueTodos.length}件）</h3>
       ${dueTodos.slice(0,5).map(t=>`<div class="listitem" data-home-todo="${t.id}"><span class="t">${esc(state.privacyOn?mask(t.title):t.title)}</span>
         <span class="muted">期限 ${esc(t.dueDate)} ／ 優先度 ${esc(todoPriorityLabel(t.priority))}${t.dueDate<today?" ／ ⚠ 期限超過":""}</span></div>`).join("")}
@@ -2170,6 +2484,17 @@ async function renderHome(root){
   if (hgt) hgt.onclick = ()=>{ state.view="todos"; render(); };
   const hgr = document.getElementById("homeGoReview");
   if (hgr) hgr.onclick = ()=>{ state.view="review"; render(); };
+  const hsi = document.getElementById("homeSampleInsert");
+  if (hsi) hsi.onclick = ()=>confirmSheet("サンプルデータを入れますか",
+    "架空の生徒・授業・行事などの練習用データを、実データとは別の「サンプル年度」に入れます。あとから設定画面でまとめて消せます。",
+    "サンプルデータを入れる", async ()=>{
+      const r = await insertSampleData();
+      if (r && r.already){ toast("サンプルデータは既に入っています"); return; }
+      await switchToYearId(SAMPLE_YEAR_ID, "home");
+      toast("サンプルデータを入れました。サンプル年度を表示しています");
+    });
+  const hso = document.getElementById("homeSampleOpen");
+  if (hso) hso.onclick = async ()=>{ await switchToYearId(SAMPLE_YEAR_ID, "home"); toast("サンプル年度を開きました"); };
   root.querySelectorAll("[data-home-todo]").forEach(el=>el.onclick=()=>{ state.view="todos"; render(); });
   if (nextCell){
     document.getElementById("homeNextLesson").onclick = ()=>{ state.selectedDate=today; state.selectedPeriod=nextCell.period; state.view="lesson"; render(); };
@@ -2540,12 +2865,13 @@ function bindSlotEditor(root, prefix, rerender){
 // ===== 設定画面 =====
 async function renderSettings(root){
   const s = settings();
+  const hasSample = await sampleYearExists();
   root.innerHTML = `
     <div class="rowflex"><button class="btn small ghost" id="sHome">🏠 ホーム</button></div>
     <h2 class="viewtitle">設定</h2>
     <div class="card"><h3 class="sect" style="margin-top:0">年度の管理</h3>
       <p>現在の年度：<strong>${state.currentYearId}年度</strong></p>
-      <div class="rowflex">${state.years.map(y=>`<button class="btn small ${y.id===state.currentYearId?"gold":"ghost"}" data-year="${y.id}">${y.id}年度</button>`).join("")}</div>
+      <div class="rowflex">${state.years.map(y=>`<button class="btn small ${y.id===state.currentYearId?"gold":"ghost"}" data-year="${y.id}">${y.id}年度${y.sample||y.id===9999?"（サンプル（お試し用））":""}</button>`).join("")}</div>
       <label class="f">新しい年度を追加</label>
       <div class="rowflex"><input class="t" id="newYear" type="number" style="max-width:140px" value="${academicYearOf(todayString())+1}">
       <select class="t" id="newYearSystem" style="max-width:160px"><option value="3">3学期制</option><option value="2">2期制</option></select>
@@ -2622,6 +2948,14 @@ async function renderSettings(root){
       <p class="muted">各画面のヘッダーの「？ ヘルプ」ボタンから、その画面の使い方を開けます。全画面分をまとめて探すときはこちら。</p>
       <button class="btn" id="sGoHelp">？ ヘルプ目次を開く</button>
     </div>
+    <div class="card"><h3 class="sect" style="margin-top:0">サンプルデータ（お試し）</h3>
+      <p class="muted">架空の生徒・授業・行事などの練習用データです。実データとは別の年度（サンプル年度）に入るので混ざりません。不要になったら、ここからまとめて消せます。</p>
+      <p>状態：<strong>${hasSample ? "サンプルデータは入っています" : "サンプルデータは入っていません"}</strong>${isSampleYear() ? "（現在、サンプル年度を表示中です）" : ""}</p>
+      <div class="rowflex">
+      ${hasSample ? `<button class="btn gold" id="setSampleOpen">サンプル年度へ切り替える</button>
+      <button class="btn danger" id="setSampleDelete">サンプルデータを消す</button>`
+      : `<button class="btn gold" id="setSampleInsert">サンプルデータを入れる</button>`}
+      </div></div>
     <div class="card"><h3 class="sect" style="margin-top:0">このアプリについて</h3>
       <p>KyomuNote（デジタル教務手帳）第3期 バージョン <strong>${APP_VERSION}</strong><br>
       <span class="muted">データはこの端末の IndexedDB（KyomuNoteDB）にのみ保存され、外部へ送信されません。AI支援を使う場合も、送信先は自分の PC の Ollama だけです。</span></p>
@@ -2745,6 +3079,27 @@ async function renderSettings(root){
       msg.textContent = "接続できませんでした。PC で Ollama が起動しているか、OLLAMA_ORIGINS=* の設定を確認してください。（" + (e.message||e) + "）";
     }
   };
+  const ssi = document.getElementById("setSampleInsert");
+  if (ssi) ssi.onclick = ()=>confirmSheet("サンプルデータを入れますか",
+    "架空の生徒・授業・行事などの練習用データを、実データとは別の「サンプル年度」に入れます。あとからこの画面でまとめて消せます。",
+    "サンプルデータを入れる", async ()=>{
+      const r = await insertSampleData();
+      if (r && r.already){ toast("サンプルデータは既に入っています"); render(); return; }
+      await switchToYearId(SAMPLE_YEAR_ID, "home");
+      toast("サンプルデータを入れました。サンプル年度を表示しています");
+    });
+  const sso = document.getElementById("setSampleOpen");
+  if (sso) sso.onclick = async ()=>{ await switchToYearId(SAMPLE_YEAR_ID, "home"); toast("サンプル年度を開きました"); };
+  const ssd = document.getElementById("setSampleDelete");
+  if (ssd) ssd.onclick = ()=>confirmSheet("サンプルデータを消しますか",
+    "サンプル年度と、サンプルとして入れたデータだけをすべて消します。実データの年度や生徒には触れません。",
+    "サンプルデータを消す", async ()=>{
+      await deleteSampleData();
+      state.years = (await dbGetAll("years")).sort((a,b)=>a.id-b.id);
+      if (!state.years.length){ state.currentYearId = null; saveSettings({ currentYearId: null }); await loadYearData(); }
+      toast("サンプルデータを消しました");
+      render();
+    });
   document.getElementById("sGoHelp").onclick = ()=>{ state.view = "helpindex"; render(); };
   document.getElementById("updateBtn").onclick = ()=>{
     const url = new URL(location.href); url.searchParams.set("v", Date.now());
@@ -2836,12 +3191,22 @@ function renderWizard(){
   box.innerHTML = `${wizHead(4,"基本時間割を登録しましょう")}
     <p class="muted">表のマスをタップして、種別・講座・ラベルを設定してください。あとから設定画面でも編集できます。</p>
     <div style="overflow-x:auto">${slotEditorHTML("wz")}</div>
-    <button class="btn gold" id="wzFinish" style="width:100%;margin-top:16px;font-size:20px;padding:16px">完了してホームへ</button>`;
+    <button class="btn gold" id="wzFinish" style="width:100%;margin-top:16px;font-size:20px;padding:16px">完了してホームへ</button>
+    <p class="muted" style="margin-top:14px">まずは練習用の架空のデータで試すこともできます。実データとは別の年度に入り、あとから設定画面でまとめて消せます。</p>
+    <button class="btn" id="wzFinishSample" style="width:100%;margin-top:6px;font-size:18px;padding:14px">サンプルデータで試してからホームへ</button>`;
   bindSlotEditor(box, "wz", renderWizard);
   document.getElementById("wzFinish").onclick = async ()=>{
     document.getElementById("wizardScreen").classList.add("hidden");
     state.slotEdit = null;
     await enterApp();
+  };
+  document.getElementById("wzFinishSample").onclick = async ()=>{
+    await insertSampleData();
+    saveSettings({ currentYearId: SAMPLE_YEAR_ID });
+    document.getElementById("wizardScreen").classList.add("hidden");
+    state.slotEdit = null;
+    await enterApp();
+    toast("サンプルデータを入れました。サンプル年度を表示しています");
   };
 }
 
@@ -3705,7 +4070,7 @@ async function renderStudent(root){
     <p>所属：${myMemberships.map(m=>{ const g=state.groups.find(x=>x.id===m.groupId); return `${esc(g?g.name:"（不明）")} #${m.no==null?"―":m.no}`; }).join(" ／ ") || "なし"}</p></div>`;
 
     // 出欠推移
-    const yr = yearRange(state.currentYearId);
+    const yr = currentYearDateRange();
     const attRaw = await dbGetRange("attendance", "byDate", yr.startDate, yr.endDate);
     const marksList = [], recent = [];
     for (const r of attRaw){
@@ -4485,7 +4850,7 @@ async function renderGuidance(root){
     document.getElementById("gdUnlock").onclick = async ()=>{ if (await ensureL3()) render(); };
     return;
   }
-  const yr = yearRange(state.currentYearId);
+  const yr = currentYearDateRange();
   const raw = await dbGetRange("guidanceRecords", "byDate", yr.startDate, yr.endDate);
   const records = [];
   for (const r of raw){ const d = await decryptMerge(r); if (!d.decryptError) records.push(d); }
@@ -4545,7 +4910,7 @@ async function loadCommentInputs(studentId){
   const obsRaw = await dbGetByIndex("observations", "byStudent", studentId);
   const observations = [];
   for (const o of obsRaw){ const d = await decryptMerge(o); if (!d.decryptError) observations.push(d); }
-  const yr = yearRange(state.currentYearId);
+  const yr = currentYearDateRange();
   const attRaw = await dbGetRange("attendance", "byDate", yr.startDate, yr.endDate);
   const attendanceMarksList = [];
   for (const r of attRaw){
