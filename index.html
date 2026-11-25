@@ -1,0 +1,1565 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>KyomuNote ― デジタル教務手帳</title>
+<meta name="description" content="教員向けデジタル教務手帳 KyomuNote（第1期）。週案・授業記録・行事を端末の中だけで安全に。">
+<meta property="og:title" content="KyomuNote ― デジタル教務手帳">
+<meta property="og:description" content="週案・授業記録・行事を、端末の中だけで安全に扱う教員向け教務手帳。">
+<meta property="og:type" content="website">
+<meta property="og:image" content="og-image.png">
+<link rel="icon" href="icon-180.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<style>
+:root{
+  --navy:#1b2a4a; --navy2:#24365e; --paper:#f7f2e7; --paper2:#efe7d6; --gold:#b8860b; --gold2:#d4a017;
+  --ink:#2b2b26; --muted:#6d675a; --line:#d8cfb8; --card:#fffdf7; --danger:#a33b3b; --ok:#3d7a4e;
+  --cancelled:#f3d9d9; --changed:#fdeec9; --supervised:#dde8f5;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic UI","Yu Gothic",Meiryo,sans-serif;background:var(--paper);color:var(--ink);font-size:17px;line-height:1.55}
+button{font:inherit;cursor:pointer}
+input,select,textarea{font:inherit}
+.hidden{display:none!important}
+
+/* ヘッダー */
+header#appHeader{background:var(--navy);color:#fff;padding:10px 14px;position:sticky;top:0;z-index:30;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+.hrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.appname{font-size:22px;font-weight:700;letter-spacing:.04em;color:#f3d98b}
+.appname small{font-size:12px;color:#cdbf9d;font-weight:400;margin-left:6px}
+.hspacer{flex:1}
+.hbtn{background:var(--navy2);color:#fff;border:1px solid #4a5f8a;border-radius:10px;padding:9px 14px;font-size:16px;min-height:44px}
+.hbtn.on{background:var(--gold);border-color:var(--gold);color:#fff;font-weight:700}
+.hbtn.privacy-on{background:#7a4b9e;border-color:#7a4b9e;font-weight:700}
+nav.mainnav{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+nav.mainnav button{flex:1;min-width:76px}
+
+main{max-width:1180px;margin:0 auto;padding:14px 12px 60px}
+h2.viewtitle{font-size:24px;color:var(--navy);margin:6px 0 10px;border-bottom:3px solid var(--gold);padding-bottom:6px}
+h3.sect{font-size:19px;color:var(--navy);margin:20px 0 8px;border-left:6px solid var(--gold);padding-left:8px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+.btn{background:var(--navy);color:#fff;border:none;border-radius:12px;padding:13px 20px;font-size:18px;min-height:52px;font-weight:600}
+.btn.gold{background:var(--gold)} .btn.ghost{background:#fff;color:var(--navy);border:2px solid var(--navy)}
+.btn.small{padding:8px 14px;font-size:16px;min-height:44px} .btn.danger{background:var(--danger)}
+.btn:disabled{opacity:.45}
+.rowflex{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+label.f{display:block;margin:12px 0 4px;font-weight:600;color:var(--navy)}
+input.t,select.t,textarea.t{width:100%;padding:12px;border:1.5px solid var(--line);border-radius:10px;background:#fff;font-size:17px}
+textarea.t{min-height:74px;resize:vertical}
+.savednote{color:var(--ok);font-size:14px;min-height:20px}
+.muted{color:var(--muted);font-size:15px}
+.badge{display:inline-block;background:var(--gold);color:#fff;border-radius:999px;font-size:12px;padding:1px 8px;font-weight:700;vertical-align:middle}
+
+/* 週案 */
+.weeknav{display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+.weeknav .btn{flex:1;min-width:90px}
+.weektitle{font-size:19px;font-weight:700;color:var(--navy);text-align:center}
+table.week{border-collapse:collapse;width:100%;table-layout:fixed;background:#fff}
+table.week th,table.week td{border:1px solid var(--line);vertical-align:top;padding:5px;font-size:13.5px}
+table.week th{background:var(--paper2);color:var(--navy);font-size:14px}
+table.week th.today,table.week td.today{background:#fdf6dd}
+table.week td.nowcell{outline:3px solid var(--gold);outline-offset:-3px;background:#fdf6dd}
+table.week td.st-cancelled{background:var(--cancelled)} table.week td.st-changed{background:var(--changed)} table.week td.st-supervised{background:var(--supervised)}
+td.cell{min-height:56px;cursor:pointer}
+td.cell .cname{font-weight:700;font-size:14px;color:var(--navy)}
+td.cell .unit{color:#55503f} td.cell .memo{color:#7a6a3a;font-size:12.5px}
+td.cell .ev{color:var(--gold);font-weight:700;font-size:12.5px}
+.plabel{width:44px;text-align:center;font-weight:700;color:var(--navy);background:var(--paper2)}
+
+/* 月間・年間 */
+table.cal{border-collapse:collapse;width:100%;table-layout:fixed;background:#fff}
+table.cal th,table.cal td{border:1px solid var(--line);vertical-align:top;padding:4px;font-size:13px}
+table.cal td{min-height:74px;cursor:pointer} table.cal td.today{background:#fdf6dd} table.cal td.out{opacity:.35;cursor:default}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:3px}
+.recdot{color:var(--gold);font-weight:900}
+.daynote-mini{color:#7a6a3a;font-size:12px}
+.minical{font-size:11px} .minical td{min-height:26px;text-align:center;cursor:pointer;padding:2px}
+.minical td.has{background:#f3e9c8;font-weight:700}
+.termband{border-radius:10px;padding:10px 14px;margin:6px 0;color:#fff;font-weight:600}
+.counterbar{height:16px;background:#e7dfc9;border-radius:8px;overflow:hidden}
+.counterbar>div{height:100%;background:var(--gold)}
+
+/* ロック・ウィザード */
+.overlay{position:fixed;inset:0;background:linear-gradient(160deg,var(--navy) 0%,#101a30 70%);z-index:100;overflow:auto;padding:22px 14px}
+.lockbox{max-width:440px;margin:0 auto;background:var(--paper);border-radius:20px;padding:26px 22px;box-shadow:0 12px 40px rgba(0,0,0,.4)}
+.logotitle{text-align:center;color:var(--navy)}
+.logotitle .big{font-size:38px;font-weight:800;letter-spacing:.05em}
+.logotitle .sub{color:var(--gold);font-weight:700}
+.pindots{text-align:center;font-size:34px;letter-spacing:.35em;min-height:52px;color:var(--navy)}
+.pinpad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:320px;margin:10px auto}
+.pinpad button{background:#fff;border:2px solid var(--line);border-radius:16px;font-size:26px;padding:16px 0;min-height:64px;font-weight:700;color:var(--navy)}
+.pinpad button:active{background:var(--paper2)}
+.lockmsg{text-align:center;color:var(--danger);min-height:24px;font-weight:600}
+.wizbox{max-width:680px;margin:0 auto;background:var(--paper);border-radius:20px;padding:26px 22px;box-shadow:0 12px 40px rgba(0,0,0,.4)}
+.wizstep{font-size:15px;color:var(--gold);font-weight:700}
+table.slotgrid{border-collapse:collapse;width:100%;table-layout:fixed;background:#fff}
+table.slotgrid th,table.slotgrid td{border:1px solid var(--line);padding:4px;font-size:12.5px;text-align:center}
+table.slotgrid td{min-height:40px;cursor:pointer} table.slotgrid td.filled{background:#fdf6dd;font-weight:600;color:var(--navy)}
+table.slotgrid td.sel{outline:3px solid var(--gold);outline-offset:-3px}
+
+/* シート（モーダル） */
+#sheetBackdrop{position:fixed;inset:0;background:rgba(20,25,40,.55);z-index:80;display:flex;align-items:flex-end;justify-content:center}
+#sheetBox{background:var(--paper);width:100%;max-width:720px;max-height:88vh;overflow:auto;border-radius:20px 20px 0 0;padding:20px 18px 30px}
+@media(min-width:760px){#sheetBackdrop{align-items:center}#sheetBox{border-radius:20px}}
+.listitem{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:8px;cursor:pointer}
+.listitem .t{font-weight:700;color:var(--navy)}
+#toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--navy);color:#fff;padding:10px 22px;border-radius:999px;z-index:200;font-size:15px;box-shadow:0 4px 16px rgba(0,0,0,.3)}
+.statusseg{display:flex;gap:8px;flex-wrap:wrap}
+.statusseg button{flex:1;min-width:70px;padding:11px 6px;border-radius:10px;border:2px solid var(--line);background:#fff;font-size:16px;min-height:48px}
+.statusseg button.on{border-color:var(--gold);background:#fdf6dd;font-weight:700}
+</style>
+</head>
+<body>
+
+<header id="appHeader" class="hidden">
+  <div class="hrow">
+    <div class="appname">KyomuNote<small>デジタル教務手帳 v1.0.0</small></div>
+    <div class="hspacer"></div>
+    <span id="headerYear" class="muted" style="color:#cdbf9d"></span>
+    <button class="hbtn" id="privacyBtn" title="プライバシーモード切替">🙈 プライバシー OFF</button>
+    <button class="hbtn" id="lockBtn" title="手動ロック">🔒 ロック</button>
+  </div>
+  <nav class="mainnav">
+    <button class="hbtn" data-nav="home">ホーム</button>
+    <button class="hbtn" data-nav="today">今日</button>
+    <button class="hbtn" data-nav="week">週案</button>
+    <button class="hbtn" data-nav="month">月間</button>
+    <button class="hbtn" data-nav="year">年間</button>
+    <button class="hbtn" data-nav="courses">講座</button>
+    <button class="hbtn" data-nav="settings">設定</button>
+  </nav>
+</header>
+
+<main id="viewRoot" class="hidden"></main>
+
+<!-- ロック画面 -->
+<div id="lockScreen" class="overlay hidden">
+  <div class="lockbox">
+    <div class="logotitle">
+      <div class="big">KyomuNote</div>
+      <div class="sub">デジタル教務手帳 ― 第1期 v1.0.0</div>
+      <p class="muted">PINを入力してロックを解除してください。<br>データはこの端末の中だけに保存されます。</p>
+    </div>
+    <div class="pindots" id="pinDots">○○○○</div>
+    <div class="lockmsg" id="lockMsg"></div>
+    <div class="pinpad" id="pinPad"></div>
+    <div class="rowflex" style="justify-content:center;margin-top:8px">
+      <button class="btn gold" id="unlockBtn" style="min-width:200px">ロック解除</button>
+    </div>
+  </div>
+</div>
+
+<!-- 初回ウィザード -->
+<div id="wizardScreen" class="overlay hidden">
+  <div class="wizbox" id="wizardBox"></div>
+</div>
+
+<!-- シート -->
+<div id="sheetBackdrop" class="hidden"><div id="sheetBox"></div></div>
+<div id="toast" class="hidden"></div>
+
+<script>
+"use strict";
+// KyomuNote logic.mjs — 純粋ロジック（UI・IndexedDBに触れない）
+// Node から import してテスト可能。ブラウザでは build.mjs が export を外して連結する。
+
+const MASK_TEXT = "―― 非表示 ――";
+
+const PERIODS = [
+  { code: 0, label: "朝", short: "朝" },
+  { code: 1, label: "1限", short: "1" },
+  { code: 2, label: "2限", short: "2" },
+  { code: 3, label: "3限", short: "3" },
+  { code: 4, label: "4限", short: "4" },
+  { code: 5, label: "5限", short: "5" },
+  { code: 6, label: "6限", short: "6" },
+  { code: 7, label: "7限", short: "7" },
+  { code: 8, label: "放課後", short: "放" },
+];
+const PERIOD_CODES = PERIODS.map((p) => p.code);
+
+function periodLabel(code) {
+  const p = PERIODS.find((x) => x.code === Number(code));
+  return p ? p.label : String(code);
+}
+function periodShortLabel(code) {
+  const p = PERIODS.find((x) => x.code === Number(code));
+  return p ? p.short : String(code);
+}
+
+const LESSON_STATUSES = [
+  { id: "normal", label: "通常" },
+  { id: "cancelled", label: "休講" },
+  { id: "changed", label: "振替" },
+  { id: "supervised", label: "自習監督" },
+];
+function statusLabel(id) {
+  const s = LESSON_STATUSES.find((x) => x.id === id);
+  return s ? s.label : "通常";
+}
+
+const EVENT_CATEGORIES = [
+  { id: "event", label: "行事", color: "#b8860b" },
+  { id: "exam", label: "考査", color: "#a33b3b" },
+  { id: "trip", label: "出張", color: "#3b6ea5" },
+  { id: "deadline", label: "〆切", color: "#7a4b9e" },
+  { id: "duty", label: "分掌", color: "#3d7a4e" },
+  { id: "daynote", label: "一言メモ", color: "#888888" },
+];
+function categoryLabel(id) {
+  const c = EVENT_CATEGORIES.find((x) => x.id === id);
+  return c ? c.label : id;
+}
+function categoryColor(id) {
+  const c = EVENT_CATEGORIES.find((x) => x.id === id);
+  return c ? c.color : "#888888";
+}
+function isDayNote(ev) { return !!ev && ev.category === "daynote"; }
+function isRealEvent(ev) { return !!ev && ev.category !== "daynote"; }
+
+// ---------- 日付ユーティリティ（すべて YYYY-MM-DD 文字列） ----------
+function pad2(n) { return String(n).padStart(2, "0"); }
+
+function formatDate(y, m, d) {
+  return `${y}-${pad2(m)}-${pad2(d)}`;
+}
+function toDateString(dateObj) {
+  return formatDate(dateObj.getFullYear(), dateObj.getMonth() + 1, dateObj.getDate());
+}
+function todayString(now = new Date()) { return toDateString(now); }
+
+function isValidDateString(s) {
+  if (typeof s !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const [y, m, d] = s.split("-").map(Number);
+  if (m < 1 || m > 12 || d < 1 || d > 31) return false;
+  const dt = new Date(y, m - 1, d);
+  return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
+}
+function parseDateString(s) {
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+function addDays(dateStr, n) {
+  const dt = parseDateString(dateStr);
+  dt.setDate(dt.getDate() + n);
+  return toDateString(dt);
+}
+function addMonths(dateStr, n) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(y, m - 1 + n, 1);
+  const last = new Date(dt.getFullYear(), dt.getMonth() + 1, 0).getDate();
+  dt.setDate(Math.min(d, last));
+  return toDateString(dt);
+}
+function diffDays(a, b) {
+  // b - a（日数）
+  const ms = parseDateString(b).getTime() - parseDateString(a).getTime();
+  return Math.round(ms / 86400000);
+}
+function compareDates(a, b) { return a < b ? -1 : a > b ? 1 : 0; }
+function dateInRange(dateStr, start, end) {
+  return dateStr >= start && dateStr <= end;
+}
+// JS Date.getDay 互換：0=日 … 6=土
+function dayOfWeek(dateStr) { return parseDateString(dateStr).getDay(); }
+// 1=月 … 6=土、0=日（baseSlots.dayOfWeek と同じ体系、日曜は0）
+function dayOfWeekMon1(dateStr) { return dayOfWeek(dateStr); }
+const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
+function weekdayLabel(dateStr) { return WEEKDAY_LABELS[dayOfWeek(dateStr)]; }
+
+function mondayOfWeek(dateStr) {
+  const dow = dayOfWeek(dateStr); // 0=日
+  const offset = dow === 0 ? -6 : 1 - dow;
+  return addDays(dateStr, offset);
+}
+const getMondayOfWeek = mondayOfWeek;
+const weekMonday = mondayOfWeek;
+
+function weekDates(mondayStr) {
+  const out = [];
+  for (let i = 0; i < 6; i++) out.push(addDays(mondayStr, i)); // 月〜土
+  return out;
+}
+function monthFirst(dateStr) { return dateStr.slice(0, 8) + "01"; }
+function daysInMonth(y, m) { return new Date(y, m, 0).getDate(); }
+
+// 年度：4月1日〜翌年3月31日
+function yearRange(yearId) {
+  const y = Number(yearId);
+  return { startDate: `${y}-04-01`, endDate: `${y + 1}-03-31` };
+}
+const getYearRange = yearRange;
+function academicYearOf(dateStr) {
+  const [y, m] = dateStr.split("-").map(Number);
+  return m >= 4 ? y : y - 1;
+}
+function academicMonths(yearId) {
+  const y = Number(yearId);
+  const out = [];
+  for (let i = 0; i < 12; i++) {
+    const mm = 4 + i;
+    out.push({ year: mm <= 12 ? y : y + 1, month: ((mm - 1) % 12) + 1 });
+  }
+  return out;
+}
+
+// ---------- 学期 ----------
+function defaultTerms(yearId, termSystem) {
+  const y = Number(yearId);
+  const mk = (n, name, s, e) => ({ id: `${y}-T${n}`, yearId: y, name, startDate: s, endDate: e });
+  if (String(termSystem) === "2") {
+    return [
+      mk(1, "前期", `${y}-04-01`, `${y}-09-30`),
+      mk(2, "後期", `${y}-10-01`, `${y + 1}-03-31`),
+    ];
+  }
+  return [
+    mk(1, "1学期", `${y}-04-01`, `${y}-08-31`),
+    mk(2, "2学期", `${y}-09-01`, `${y}-12-31`),
+    mk(3, "3学期", `${y + 1}-01-01`, `${y + 1}-03-31`),
+  ];
+}
+const generateDefaultTerms = defaultTerms;
+const createDefaultTerms = defaultTerms;
+
+function termForDate(terms, dateStr) {
+  if (!terms) return null;
+  for (const t of terms) {
+    if (dateInRange(dateStr, t.startDate, t.endDate)) return t;
+  }
+  return null;
+}
+const findTermForDate = termForDate;
+const getTermForDate = termForDate;
+function termIdForDate(terms, dateStr) {
+  const t = termForDate(terms, dateStr);
+  return t ? t.id : null;
+}
+
+// ---------- コマ ----------
+function lessonKey(dateStr, period) { return `${dateStr}#${Number(period)}`; }
+const lessonId = lessonKey;
+const makeLessonKey = lessonKey;
+const komaKey = lessonKey;
+
+const RECORD_FIELDS = ["unit", "goal", "plan", "board", "materials", "progress", "reflection", "handoff", "gapMemo", "shortMemo"];
+function computeHasRecord(lesson) {
+  if (!lesson) return false;
+  return RECORD_FIELDS.some((f) => typeof lesson[f] === "string" && lesson[f].trim() !== "");
+}
+const hasRecordOf = computeHasRecord;
+
+// 週案フレーム：基本枠＋lessons の重ね合わせ用データ整形
+// 戻り値 { monday, dates:[月..土], rows:[{period, label, cells:[cell x6]}] }
+// cell = { date, period, dayOfWeek, baseSlot|null, lesson|null, courseId, hasRecord }
+function buildWeekFrame(baseSlots, lessons, mondayStr, courses) {
+  const dates = weekDates(mondayStr);
+  const lessonMap = new Map();
+  for (const l of lessons || []) lessonMap.set(l.id, l);
+  const baseMap = new Map();
+  for (const b of baseSlots || []) baseMap.set(`${b.dayOfWeek}#${b.period}`, b);
+  const courseMap = new Map();
+  for (const c of courses || []) courseMap.set(c.id, c);
+  const rows = PERIODS.map((p) => {
+    const cells = dates.map((date) => {
+      const dow = dayOfWeek(date);
+      const baseSlot = baseMap.get(`${dow}#${p.code}`) || null;
+      const lesson = lessonMap.get(lessonKey(date, p.code)) || null;
+      const courseId = (lesson && lesson.courseId) || (baseSlot && baseSlot.courseId) || null;
+      return {
+        date, period: p.code, dayOfWeek: dow,
+        baseSlot, lesson, courseId,
+        course: courseId ? courseMap.get(courseId) || null : null,
+        label: baseSlot ? baseSlot.label || "" : "",
+        kind: baseSlot ? baseSlot.kind : null,
+        hasRecord: lesson ? computeHasRecord(lesson) : false,
+        status: lesson ? lesson.status || "normal" : "normal",
+        unit: lesson ? lesson.unit || "" : "",
+        shortMemo: lesson ? lesson.shortMemo || "" : "",
+      };
+    });
+    return { period: p.code, label: p.label, cells };
+  });
+  return { monday: mondayStr, dates, rows };
+}
+const generateWeekFrame = buildWeekFrame;
+const makeWeekFrame = buildWeekFrame;
+
+// 現在時刻から「今の時限」の目安（表示強調用）
+function currentPeriodCode(now = new Date()) {
+  const h = now.getHours();
+  if (h < 9) return 0;
+  if (h < 10) return 1;
+  if (h < 11) return 2;
+  if (h < 12) return 3;
+  if (h < 14) return 4;
+  if (h < 15) return 5;
+  if (h < 16) return 6;
+  if (h < 17) return 7;
+  return 8;
+}
+
+// ---------- プライバシーマスキング ----------
+// level: 1=一般（自由記述を伏せる） 2=個人情報（同上） 3=要配慮（セクションごと隠す想定で伏せる）
+function maskText(text, level = 1, privacyOn = true) {
+  if (!privacyOn) return text == null ? "" : String(text);
+  if (text == null || String(text).trim() === "") return "";
+  return MASK_TEXT;
+}
+const maskFreeText = maskText;
+function applyPrivacyMask(text, options = {}) {
+  const level = options.level != null ? options.level : 1;
+  const on = options.privacyOn != null ? options.privacyOn : (options.on != null ? options.on : true);
+  return maskText(text, level, on);
+}
+function shouldHideSection(level, privacyOn) {
+  return !!privacyOn && Number(level) >= 3;
+}
+
+// ---------- 自動ロック ----------
+function shouldAutoLock(lastActiveAt, timeoutMinutes, now = Date.now()) {
+  if (!lastActiveAt) return false;
+  const min = Number(timeoutMinutes);
+  if (!min || min <= 0) return false;
+  return now - lastActiveAt >= min * 60 * 1000;
+}
+const isAutoLockDue = shouldAutoLock;
+function shouldLockAfterHidden(hiddenAt, timeoutMinutes, now = Date.now()) {
+  return shouldAutoLock(hiddenAt, timeoutMinutes, now);
+}
+
+// PIN待機時間：5回失敗で30秒、以降倍増
+function pinWaitSeconds(failCount) {
+  if (failCount < 5) return 0;
+  return 30 * Math.pow(2, failCount - 5);
+}
+function isValidPin(pin) { return typeof pin === "string" && /^\d{4,6}$/.test(pin); }
+
+function eventsOnDate(events, dateStr) {
+  return (events || []).filter((e) => dateInRange(dateStr, e.startDate, e.endDate));
+}
+function uuid() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  return "id-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+}
+
+const LOGIC = {
+  MASK_TEXT, PERIODS, PERIOD_CODES, periodLabel, periodShortLabel,
+  LESSON_STATUSES, statusLabel, EVENT_CATEGORIES, categoryLabel, categoryColor, isDayNote, isRealEvent,
+  pad2, formatDate, toDateString, todayString, isValidDateString, parseDateString,
+  addDays, addMonths, diffDays, compareDates, dateInRange, dayOfWeek, dayOfWeekMon1,
+  WEEKDAY_LABELS, weekdayLabel, mondayOfWeek, getMondayOfWeek, weekMonday, weekDates,
+  monthFirst, daysInMonth, yearRange, getYearRange, academicYearOf, academicMonths,
+  defaultTerms, generateDefaultTerms, createDefaultTerms, termForDate, findTermForDate, getTermForDate, termIdForDate,
+  lessonKey, lessonId, makeLessonKey, komaKey, RECORD_FIELDS, computeHasRecord, hasRecordOf,
+  buildWeekFrame, generateWeekFrame, makeWeekFrame, currentPeriodCode,
+  maskText, maskFreeText, applyPrivacyMask, shouldHideSection,
+  shouldAutoLock, isAutoLockDue, shouldLockAfterHidden, pinWaitSeconds, isValidPin,
+  eventsOnDate, uuid,
+};
+
+// KyomuNote db.mjs — IndexedDB アクセス層（素の IDB API の Promise ラッパー）
+// DB名 KyomuNoteDB version 1 / 7ストア（設計 §3）
+// ブラウザ用モジュール。build.mjs が export を外して index.html に連結する。
+
+const DB_NAME = "KyomuNoteDB";
+const DB_VERSION = 1;
+const STORE_NAMES = ["meta", "years", "terms", "courses", "baseSlots", "lessons", "events"];
+
+let _dbPromise = null;
+
+function openDB() {
+  if (_dbPromise) return _dbPromise;
+  _dbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (ev) => {
+      const db = req.result;
+      const oldVersion = ev.oldVersion;
+      if (oldVersion < 1) {
+        db.createObjectStore("meta", { keyPath: "key" });
+        db.createObjectStore("years", { keyPath: "id" });
+        const terms = db.createObjectStore("terms", { keyPath: "id" });
+        terms.createIndex("byYear", "yearId", { unique: false });
+        const courses = db.createObjectStore("courses", { keyPath: "id" });
+        courses.createIndex("byYear", "yearId", { unique: false });
+        const baseSlots = db.createObjectStore("baseSlots", { keyPath: "id" });
+        baseSlots.createIndex("byYear", "yearId", { unique: false });
+        baseSlots.createIndex("byYearDow", ["yearId", "dayOfWeek"], { unique: false });
+        const lessons = db.createObjectStore("lessons", { keyPath: "id" });
+        lessons.createIndex("byDate", "date", { unique: false });
+        lessons.createIndex("byYear", "yearId", { unique: false });
+        lessons.createIndex("byCourse", "courseId", { unique: false });
+        const events = db.createObjectStore("events", { keyPath: "id" });
+        events.createIndex("byYear", "yearId", { unique: false });
+        events.createIndex("byStart", "startDate", { unique: false });
+      }
+      // 将来の version ではここに oldVersion 分岐でストア追加のみ行う（既存データは消さない）
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => { _dbPromise = null; reject(req.error); };
+  });
+  return _dbPromise;
+}
+
+function _reqToPromise(req) {
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function _store(name, mode) {
+  const db = await openDB();
+  return db.transaction(name, mode).objectStore(name);
+}
+
+async function dbGet(store, key) {
+  const s = await _store(store, "readonly");
+  const v = await _reqToPromise(s.get(key));
+  return v === undefined ? null : v;
+}
+async function dbPut(store, value) {
+  const s = await _store(store, "readwrite");
+  return _reqToPromise(s.put(value));
+}
+async function dbDelete(store, key) {
+  const s = await _store(store, "readwrite");
+  return _reqToPromise(s.delete(key));
+}
+async function dbGetAll(store) {
+  const s = await _store(store, "readonly");
+  return _reqToPromise(s.getAll());
+}
+async function dbGetByIndex(store, indexName, query) {
+  const s = await _store(store, "readonly");
+  return _reqToPromise(s.index(indexName).getAll(query));
+}
+async function dbCountByIndex(store, indexName, query) {
+  const s = await _store(store, "readonly");
+  return _reqToPromise(s.index(indexName).count(query));
+}
+async function dbGetRange(store, indexName, start, end) {
+  const s = await _store(store, "readonly");
+  return _reqToPromise(s.index(indexName).getAll(IDBKeyRange.bound(start, end)));
+}
+
+// 高レベルヘルパー
+async function getMeta(key) { return dbGet("meta", key); }
+async function putMeta(record) { return dbPut("meta", record); }
+async function getLessonsInRange(startDate, endDate) {
+  return dbGetRange("lessons", "byDate", startDate, endDate);
+}
+async function getTermsByYear(yearId) { return dbGetByIndex("terms", "byYear", yearId); }
+async function getCoursesByYear(yearId) { return dbGetByIndex("courses", "byYear", yearId); }
+async function getBaseSlotsByYear(yearId) { return dbGetByIndex("baseSlots", "byYear", yearId); }
+async function getEventsByYear(yearId) { return dbGetByIndex("events", "byYear", yearId); }
+async function countLessonsByCourse(courseId) {
+  return dbCountByIndex("lessons", "byCourse", courseId);
+}
+
+const KyomuDB = {
+  DB_NAME, DB_VERSION, STORE_NAMES,
+  open: openDB, openDB,
+  get: dbGet, put: dbPut, delete: dbDelete, remove: dbDelete, getAll: dbGetAll,
+  getByIndex: dbGetByIndex, countByIndex: dbCountByIndex, getRange: dbGetRange,
+  getMeta, putMeta, getLessonsInRange, getTermsByYear, getCoursesByYear,
+  getBaseSlotsByYear, getEventsByYear, countLessonsByCourse,
+};
+
+</script>
+<script>
+"use strict";
+// ===== エリアレジストリ（設計 §8.4）=====
+const AREAS = [
+  { id: "home", name: "ホーム", desc: "業務エリアへの入口一覧", icon: "🏠", phase: 1, enabled: true, showOnHome: false },
+  { id: "today", name: "今日", desc: "今日のコマ・行事・一言メモを集約。今の時限から記録へ最短で", icon: "📍", phase: 1, enabled: true, showOnHome: true },
+  { id: "week", name: "週案", desc: "月〜土 × 朝・1〜7限・放課後の週間時間割", icon: "🗓", phase: 1, enabled: true, showOnHome: true },
+  { id: "month", name: "月間", desc: "行事・記録有無・日メモを月カレンダーで", icon: "📅", phase: 1, enabled: true, showOnHome: true },
+  { id: "year", name: "年間", desc: "12か月俯瞰・学期と考査の帯・講座別時数カウンター", icon: "📆", phase: 1, enabled: true, showOnHome: true },
+  { id: "courses", name: "講座", desc: "講座ごとに授業記録を時系列でたどる", icon: "📚", phase: 1, enabled: true, showOnHome: true },
+  { id: "lesson", name: "授業記録を開く", desc: "計画（単元・ねらい・展開・板書・準備物）と実践の記録", icon: "📖", phase: 1, enabled: true, showOnHome: false },
+  { id: "day", name: "この日の詳細", desc: "その日の一言メモ・行事・コマ一覧", icon: "📝", phase: 1, enabled: true, showOnHome: false },
+  { id: "settings", name: "設定", desc: "年度・学期・講座・基本時間割・PIN・自動ロック", icon: "⚙", phase: 1, enabled: true, showOnHome: true },
+  // 第2期以降: roster / attendance / submissions / grades / student / duty / club をここに追加する
+];
+function areaById(id){ return AREAS.find(a=>a.id===id) || null; }
+
+// ===== 状態 =====
+const APP_VERSION = "1.0.0";
+const SETTINGS_KEY = "kyomunote.settings.v1";
+const KEYCHECK_PLAIN = "KyomuNote-KeyCheck-v1";
+const state = {
+  unlocked: false, key: null, security: null,
+  view: "home", years: [], terms: [], courses: [], baseSlots: [],
+  currentYearId: null, weekMonday: mondayOfWeek(todayString()),
+  monthCursor: null, selectedDate: todayString(), selectedPeriod: null, selectedCourseId: null,
+  privacyOn: false, lastActive: Date.now(), hiddenAt: null,
+  lessonsCache: [], eventsCache: [],
+  wizard: null, slotEdit: null,
+};
+window.__KYOMU__ = { db: KyomuDB, logic: LOGIC, state };
+
+function loadSettings(){
+  try { return JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}"); } catch(e){ return {}; }
+}
+function saveSettings(patch){
+  const s = Object.assign(loadSettings(), patch || {});
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  return s;
+}
+function settings(){ return loadSettings(); }
+function autoLockMinutes(){ const v = Number(settings().autoLockMin); return v>=1 && v<=10 ? v : 5; }
+
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function toast(msg){
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.remove("hidden");
+  clearTimeout(toast._tm); toast._tm = setTimeout(()=>t.classList.add("hidden"), 2200);
+}
+function mask(s){ return maskText(s, 1, state.privacyOn); }
+function currentYear(){ return state.years.find(y=>y.id===state.currentYearId) || null; }
+function courseName(id){ const c = state.courses.find(x=>x.id===id); return c ? `${c.name}（${c.classLabel}）` : ""; }
+
+// ===== WebCrypto（PIN・鍵導出） =====
+function b64encode(buf){ let s=""; const b=new Uint8Array(buf); for(let i=0;i<b.length;i++) s+=String.fromCharCode(b[i]); return btoa(s); }
+function b64decode(str){ const s=atob(str); const b=new Uint8Array(s.length); for(let i=0;i<s.length;i++) b[i]=s.charCodeAt(i); return b.buffer; }
+async function deriveKey(pin, saltB64, iterations){
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(pin), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name:"PBKDF2", salt: new Uint8Array(b64decode(saltB64)), iterations: iterations||600000, hash:"SHA-256" },
+    base, { name:"AES-GCM", length:256 }, false, ["encrypt","decrypt"]);
+}
+async function makeKeyCheck(key){
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = await crypto.subtle.encrypt({ name:"AES-GCM", iv }, key, new TextEncoder().encode(KEYCHECK_PLAIN));
+  return { iv: b64encode(iv.buffer), data: b64encode(data) };
+}
+async function verifyKeyCheck(key, keyCheck){
+  try {
+    const plain = await crypto.subtle.decrypt({ name:"AES-GCM", iv: new Uint8Array(b64decode(keyCheck.iv)) }, key, b64decode(keyCheck.data));
+    return new TextDecoder().decode(plain) === KEYCHECK_PLAIN;
+  } catch(e){ return false; }
+}
+async function createSecurity(pin){
+  const salt = b64encode(crypto.getRandomValues(new Uint8Array(16)).buffer);
+  const iterations = 600000;
+  const key = await deriveKey(pin, salt, iterations);
+  const keyCheck = await makeKeyCheck(key);
+  const rec = { key:"security", salt, iterations, keyCheck, failCount:0, waitUntil:0 };
+  await dbPut("meta", rec);
+  return { key, rec };
+}
+
+// ===== ロック =====
+let pinBuffer = "";
+function showLock(msg){
+  state.unlocked = false; state.key = null;
+  document.getElementById("appHeader").classList.add("hidden");
+  document.getElementById("viewRoot").classList.add("hidden");
+  document.getElementById("wizardScreen").classList.add("hidden");
+  document.getElementById("sheetBackdrop").classList.add("hidden");
+  const ls = document.getElementById("lockScreen");
+  ls.classList.remove("hidden");
+  pinBuffer = ""; renderPinDots();
+  document.getElementById("lockMsg").textContent = msg || "";
+  checkPinWait();
+}
+function renderPinDots(){
+  const n = pinBuffer.length;
+  document.getElementById("pinDots").textContent = "●".repeat(n) + "○".repeat(Math.max(0, 4-n));
+}
+function checkPinWait(){
+  const sec = state.security;
+  if (sec && sec.waitUntil && Date.now() < sec.waitUntil){
+    const left = Math.ceil((sec.waitUntil - Date.now())/1000);
+    document.getElementById("lockMsg").textContent = `PINを連続で誤りました。あと ${left} 秒お待ちください。`;
+    return left;
+  }
+  return 0;
+}
+async function tryUnlock(){
+  if (checkPinWait() > 0) return;
+  if (!isValidPin(pinBuffer)){ document.getElementById("lockMsg").textContent = "PINは4〜6桁の数字です。"; return; }
+  const sec = state.security;
+  const key = await deriveKey(pinBuffer, sec.salt, sec.iterations);
+  const ok = await verifyKeyCheck(key, sec.keyCheck);
+  if (ok){
+    sec.failCount = 0; sec.waitUntil = 0; await dbPut("meta", sec);
+    state.key = key; state.unlocked = true; pinBuffer = "";
+    document.getElementById("lockScreen").classList.add("hidden");
+    await enterApp();
+  } else {
+    sec.failCount = (sec.failCount||0) + 1;
+    const wait = pinWaitSeconds(sec.failCount);
+    sec.waitUntil = wait > 0 ? Date.now() + wait*1000 : 0;
+    await dbPut("meta", sec);
+    pinBuffer = ""; renderPinDots();
+    document.getElementById("lockMsg").textContent = wait > 0
+      ? `PINが違います。${wait}秒の待機時間が発生しました。`
+      : "PINが違います。もう一度入力してください。";
+  }
+}
+function lockApp(msg){ showLock(msg || "ロックしました。"); }
+
+// 自動ロック
+function touchActivity(){ state.lastActive = Date.now(); }
+["pointerdown","keydown","input","scroll","touchstart"].forEach(ev =>
+  document.addEventListener(ev, touchActivity, { passive:true }));
+setInterval(()=>{
+  if (state.unlocked && shouldAutoLock(state.lastActive, autoLockMinutes())) lockApp("無操作のため自動ロックしました。");
+}, 5000);
+document.addEventListener("visibilitychange", ()=>{
+  if (document.hidden){ state.hiddenAt = Date.now(); }
+  else if (state.hiddenAt){
+    if (state.unlocked && shouldLockAfterHidden(state.hiddenAt, autoLockMinutes())) lockApp("離席時間が長いため自動ロックしました。");
+    state.hiddenAt = null; touchActivity();
+  }
+});
+
+// PINパッド生成
+(function buildPinPad(){
+  const pad = document.getElementById("pinPad");
+  const keys = ["1","2","3","4","5","6","7","8","9","C","0","⌫"];
+  keys.forEach(k=>{
+    const b = document.createElement("button");
+    b.textContent = k; b.type = "button";
+    b.addEventListener("click", ()=>{
+      if (k==="C") pinBuffer = "";
+      else if (k==="⌫") pinBuffer = pinBuffer.slice(0,-1);
+      else if (pinBuffer.length < 6) pinBuffer += k;
+      renderPinDots();
+    });
+    pad.appendChild(b);
+  });
+  document.getElementById("unlockBtn").addEventListener("click", tryUnlock);
+  document.addEventListener("keydown", (e)=>{
+    if (document.getElementById("lockScreen").classList.contains("hidden")) return;
+    if (/^\d$/.test(e.key) && pinBuffer.length < 6){ pinBuffer += e.key; renderPinDots(); }
+    if (e.key === "Backspace"){ pinBuffer = pinBuffer.slice(0,-1); renderPinDots(); }
+    if (e.key === "Enter") tryUnlock();
+  });
+})();
+
+// ===== データ読み込み =====
+async function loadYearData(){
+  if (!state.currentYearId) { state.terms=[]; state.courses=[]; state.baseSlots=[]; return; }
+  state.terms = (await getTermsByYear(state.currentYearId)).sort((a,b)=>a.startDate<b.startDate?-1:1);
+  state.courses = await getCoursesByYear(state.currentYearId);
+  state.baseSlots = await getBaseSlotsByYear(state.currentYearId);
+  state.eventsCache = await getEventsByYear(state.currentYearId);
+}
+async function enterApp(){
+  document.getElementById("appHeader").classList.remove("hidden");
+  document.getElementById("viewRoot").classList.remove("hidden");
+  state.years = (await dbGetAll("years")).sort((a,b)=>a.id-b.id);
+  const saved = loadSettings();
+  state.privacyOn = !!saved.privacyDefault;
+  updatePrivacyBtn();
+  if (!state.years.length){ startWizard(2); return; }
+  state.currentYearId = saved.currentYearId && state.years.some(y=>y.id===saved.currentYearId)
+    ? saved.currentYearId : state.years[state.years.length-1].id;
+  await loadYearData();
+  if (!state.monthCursor) state.monthCursor = todayString().slice(0,7);
+  state.view = "home"; // ロック解除後はホーム（業務エリア・ランチャー）を最初に開く（§8.5）
+  touchActivity();
+  render();
+}
+function updatePrivacyBtn(){
+  const b = document.getElementById("privacyBtn");
+  b.textContent = state.privacyOn ? "🙈 プライバシー ON" : "👀 プライバシー OFF";
+  b.classList.toggle("privacy-on", state.privacyOn);
+}
+document.getElementById("privacyBtn").addEventListener("click", ()=>{
+  state.privacyOn = !state.privacyOn; updatePrivacyBtn(); render();
+  toast(state.privacyOn ? "プライバシーモード ON（自由記述を伏せています）" : "プライバシーモード OFF");
+});
+document.getElementById("lockBtn").addEventListener("click", ()=>lockApp());
+document.querySelectorAll("[data-nav]").forEach(b=>b.addEventListener("click", ()=>{
+  state.view = b.dataset.nav; render();
+}));
+
+// ===== 描画ルーター =====
+function render(){
+  document.querySelectorAll("[data-nav]").forEach(b=>b.classList.toggle("on", b.dataset.nav===state.view));
+  const y = currentYear();
+  document.getElementById("headerYear").textContent = y ? `${y.id}年度` : "";
+  const root = document.getElementById("viewRoot");
+  if (state.view==="home") renderHome(root);
+  else if (state.view==="today") renderToday(root);
+  else if (state.view==="week") renderWeek(root);
+  else if (state.view==="courses") renderCourses(root);
+  else if (state.view==="course") renderCourse(root);
+  else if (state.view==="month") renderMonth(root);
+  else if (state.view==="year") renderYear(root);
+  else if (state.view==="settings") renderSettings(root);
+  else if (state.view==="day") renderDay(root);
+  else if (state.view==="lesson") renderLesson(root);
+}
+
+// ===== 週案ビュー =====
+async function renderWeek(root){
+  const monday = state.weekMonday;
+  const dates = weekDates(monday);
+  const lessons = await getLessonsInRange(dates[0], dates[5]);
+  state.lessonsCache = lessons;
+  const frame = buildWeekFrame(state.baseSlots, lessons, monday, state.courses);
+  const today = todayString();
+  const nowPeriod = currentPeriodCode();
+  const evByDate = {};
+  for (const d of dates) evByDate[d] = eventsOnDate(state.eventsCache, d).filter(isRealEvent);
+  let h = `<h2 class="viewtitle">週案</h2>
+  <div class="weeknav">
+    <button class="btn small ghost" id="prevWeek">◀ 前週</button>
+    <div class="weektitle">${esc(monday)} の週<br><span class="muted" style="font-size:14px">${state.currentYearId}年度</span></div>
+    <button class="btn small ghost" id="thisWeek">今週</button>
+    <button class="btn small ghost" id="nextWeek">翌週 ▶</button>
+  </div><div style="overflow-x:auto"><table class="week"><tr><th class="plabel">時限</th>`;
+  dates.forEach((d,i)=>{
+    const evs = evByDate[d].map(e=>`<div class="ev">◆ ${esc(e.title)}</div>`).join("");
+    h += `<th class="${d===today?"today":""}">${WEEKDAY_LABELS[dayOfWeek(d)]}<br>${esc(d.slice(5))}${d===today?' <span class="badge">今日</span>':""}${evs}</th>`;
+  });
+  h += `</tr>`;
+  for (const row of frame.rows){
+    h += `<tr><td class="plabel">${esc(row.label)}</td>`;
+    for (const cell of row.cells){
+      const cls = ["cell", cell.date===today?"today":"", (cell.date===today && cell.period===nowPeriod)?"nowcell":"", cell.status!=="normal"?("st-"+cell.status):""].join(" ");
+      const name = cell.course ? esc(cell.course.name) : (cell.label ? esc(cell.label) : "");
+      const sub = cell.course ? esc(cell.course.classLabel) : (cell.baseSlot ? esc(categoryLabelForKind(cell.baseSlot.kind)) : "");
+      h += `<td class="${cls}" data-date="${cell.date}" data-period="${cell.period}">
+        ${name?`<div class="cname">${name}</div><div>${esc(sub)}</div>`:`<div class="muted">―</div>`}
+        ${cell.unit?`<div class="unit">単元：${esc(cell.unit)}</div>`:""}
+        ${cell.shortMemo?`<div class="memo">✎ ${esc(mask(cell.shortMemo))}</div>`:""}
+        ${cell.hasRecord?`<span class="badge">記録あり</span>`:""}
+        ${cell.status!=="normal"?`<div>【${esc(statusLabel(cell.status))}】</div>`:""}
+      </td>`;
+    }
+    h += `</tr>`;
+  }
+  h += `</table></div><p class="muted">マスをタップするとコマシート（一言メモ・状態・授業記録への入口）が開きます。</p>`;
+  root.innerHTML = h;
+  document.getElementById("prevWeek").onclick = ()=>{ state.weekMonday = addDays(state.weekMonday,-7); render(); };
+  document.getElementById("nextWeek").onclick = ()=>{ state.weekMonday = addDays(state.weekMonday,7); render(); };
+  document.getElementById("thisWeek").onclick = ()=>{ state.weekMonday = mondayOfWeek(todayString()); render(); };
+  root.querySelectorAll("td.cell").forEach(td=>td.addEventListener("click", ()=>{
+    openSlotSheet(td.dataset.date, Number(td.dataset.period));
+  }));
+}
+function categoryLabelForKind(kind){
+  return ({lesson:"授業",homeroom:"SHR/LHR",club:"部活",meeting:"会議",duty:"校務",other:"その他"})[kind] || "";
+}
+
+// ===== コマシート（§8.2）=====
+function openSheet(html){
+  const bd = document.getElementById("sheetBackdrop");
+  document.getElementById("sheetBox").innerHTML = html;
+  bd.classList.remove("hidden");
+}
+function closeSheet(){ document.getElementById("sheetBackdrop").classList.add("hidden"); }
+document.getElementById("sheetBackdrop").addEventListener("click", (e)=>{
+  if (e.target.id==="sheetBackdrop") closeSheet();
+});
+
+async function getOrDraftLesson(date, period){
+  const id = lessonKey(date, period);
+  let lesson = await dbGet("lessons", id);
+  if (!lesson){
+    const dow = dayOfWeek(date);
+    const base = state.baseSlots.find(b=>b.dayOfWeek===dow && b.period===period);
+    lesson = {
+      id, date, period, yearId: state.currentYearId,
+      termId: termIdForDate(state.terms, date),
+      courseId: base ? base.courseId : null, status: "normal",
+      unit:"", goal:"", plan:"", board:"", materials:"",
+      progress:"", reflection:"", handoff:"", gapMemo:"", shortMemo:"",
+      hasRecord:false, level:1, updatedAt: new Date().toISOString(),
+    };
+  }
+  return lesson;
+}
+async function saveLesson(lesson){
+  lesson.termId = termIdForDate(state.terms, lesson.date);
+  lesson.hasRecord = computeHasRecord(lesson);
+  lesson.updatedAt = new Date().toISOString();
+  lesson.level = 1;
+  await dbPut("lessons", lesson);
+  return lesson;
+}
+
+function openSlotSheet(date, period){
+  state.selectedDate = date; state.selectedPeriod = period;
+  getOrDraftLesson(date, period).then(lesson=>{
+    const course = state.courses.find(c=>c.id===lesson.courseId);
+    const dow = dayOfWeek(date);
+    const base = state.baseSlots.find(b=>b.dayOfWeek===dow && b.period===period);
+    const titleName = course ? `${course.subject} ${course.name}（${course.classLabel}）` : (base && base.label ? base.label : "（基本枠なし）");
+    const areaBtns = AREAS.filter(a=>a.enabled && (a.id==="lesson"||a.id==="day")).map(a=>{
+      if (a.id==="lesson") return `<button class="btn gold" id="sheetGoLesson" style="width:100%;font-size:20px;padding:16px">📖 ${esc(a.name)}</button>`;
+      return `<button class="btn ghost" id="sheetGoDay" style="width:100%">${esc(a.name)}（${esc(date)}）</button>`;
+    }).join("");
+    openSheet(`
+      <h3 class="sect" style="margin-top:0">${esc(date)}（${WEEKDAY_LABELS[dow]}） ${esc(periodLabel(period))}</h3>
+      <p style="font-size:18px"><strong>${esc(titleName)}</strong>${lesson.unit?`<br>単元：${esc(lesson.unit)}`:""}</p>
+      <label class="f">一言メモ（自動保存）</label>
+      <textarea class="t" id="sheetShortMemo" placeholder="例：小テスト返却、進度やや遅れ">${esc(state.privacyOn ? mask(lesson.shortMemo) : lesson.shortMemo)}</textarea>
+      <div class="savednote" id="sheetSaved"></div>
+      <label class="f">状態</label>
+      <div class="statusseg" id="sheetStatus">
+        ${LESSON_STATUSES.map(s=>`<button data-st="${s.id}" class="${lesson.status===s.id?"on":""}">${s.label}</button>`).join("")}
+      </div>
+      <div style="margin-top:18px;display:grid;gap:10px">${areaBtns}
+      <button class="btn small ghost" id="sheetClose">閉じる</button></div>
+    `);
+    const memoEl = document.getElementById("sheetShortMemo");
+    if (state.privacyOn) memoEl.disabled = true;
+    memoEl.addEventListener("input", async ()=>{
+      lesson.shortMemo = memoEl.value;
+      await saveLesson(lesson);
+      document.getElementById("sheetSaved").textContent = "保存しました " + new Date().toLocaleTimeString("ja-JP");
+    });
+    document.querySelectorAll("#sheetStatus button").forEach(b=>b.addEventListener("click", async ()=>{
+      lesson.status = b.dataset.st;
+      await saveLesson(lesson);
+      openSlotSheet(date, period); render();
+    }));
+    document.getElementById("sheetGoLesson").addEventListener("click", ()=>{ closeSheet(); state.view="lesson"; render(); });
+    const gd = document.getElementById("sheetGoDay");
+    if (gd) gd.addEventListener("click", ()=>{ closeSheet(); state.view="day"; render(); });
+    document.getElementById("sheetClose").addEventListener("click", ()=>{ closeSheet(); render(); });
+  });
+}
+
+// ===== 授業記録エリア（コマ詳細）=====
+async function renderLesson(root){
+  const date = state.selectedDate, period = state.selectedPeriod == null ? 1 : state.selectedPeriod;
+  const lesson = await getOrDraftLesson(date, period);
+  const freeFields = [
+    ["plan","展開メモ",true],["board","板書計画",true],["reflection","振り返り・所感",true],
+    ["handoff","次回への申し送り",true],["gapMemo","クラス間の進度差メモ",true],
+  ];
+  const fieldHtml = (key, label, isFree)=>{
+    const val = (isFree && state.privacyOn) ? mask(lesson[key]) : (lesson[key]||"");
+    return `<label class="f">${label}</label>
+      <textarea class="t" data-lfield="${key}" ${isFree && state.privacyOn ? "disabled":""}>${esc(val)}</textarea>`;
+  };
+  root.innerHTML = `
+    <div class="rowflex">
+      <button class="btn small ghost" id="backWeek">◀ 週案</button>
+      <button class="btn small ghost" id="backHome">🏠 ホーム</button>
+      <button class="btn small ghost" id="goDayFromLesson">📝 同じ日の日エリアへ</button>
+      ${lesson.courseId?`<button class="btn small ghost" id="goCourseFromLesson">📚 同じ講座の記録一覧へ</button>`:""}
+    </div>
+    <h2 class="viewtitle">授業記録 ― ${esc(date)}（${WEEKDAY_LABELS[dayOfWeek(date)]}） ${esc(periodLabel(period))}${lesson.courseId?` ― ${esc(courseName(lesson.courseId))}`:""}</h2>
+    ${state.privacyOn?`<div class="card">🙈 プライバシーモード ON のため自由記述は伏せ字表示です（データは書き換えていません）。編集するにはヘッダーで OFF にしてください。</div>`:""}
+    <div class="card">
+      <label class="f">講座</label>
+      <select class="t" id="lessonCourse">
+        <option value="">（なし）</option>
+        ${state.courses.map(c=>`<option value="${c.id}" ${lesson.courseId===c.id?"selected":""}>${esc(c.subject)} ${esc(c.name)}（${esc(c.classLabel)}）</option>`).join("")}
+      </select>
+      <label class="f">状態</label>
+      <select class="t" id="lessonStatus">
+        ${LESSON_STATUSES.map(s=>`<option value="${s.id}" ${lesson.status===s.id?"selected":""}>${s.label}</option>`).join("")}
+      </select>
+      <label class="f">一言メモ</label>
+      <textarea class="t" data-lfield="shortMemo" ${state.privacyOn?"disabled":""}>${esc(state.privacyOn?mask(lesson.shortMemo):(lesson.shortMemo||""))}</textarea>
+      <h3 class="sect">計画</h3>
+      ${fieldHtml("unit","単元名",false)}
+      ${fieldHtml("goal","ねらい",false)}
+      ${freeFields.filter(f=>["plan","board"].includes(f[0])).map(f=>fieldHtml(f[0],f[1],f[2])).join("")}
+      ${fieldHtml("materials","配布物・準備物・ICTリンク",false)}
+      <h3 class="sect">実践</h3>
+      ${fieldHtml("progress","実際の進度",false)}
+      ${freeFields.filter(f=>["reflection","handoff","gapMemo"].includes(f[0])).map(f=>fieldHtml(f[0],f[1],f[2])).join("")}
+      <div class="savednote" id="lessonSaved">入力すると自動で保存されます（保存ボタンはありません）。</div>
+    </div>`;
+  document.getElementById("backWeek").onclick = ()=>{ state.view="week"; render(); };
+  document.getElementById("backHome").onclick = ()=>{ state.view="home"; render(); };
+  document.getElementById("goDayFromLesson").onclick = ()=>{ state.selectedDate = date; state.view="day"; render(); };
+  const gcl = document.getElementById("goCourseFromLesson");
+  if (gcl) gcl.onclick = ()=>{ state.selectedCourseId = lesson.courseId; state.view="course"; render(); };
+  const save = async ()=>{
+    lesson.hasRecord = computeHasRecord(lesson);
+    await saveLesson(lesson);
+    const el = document.getElementById("lessonSaved");
+    if (el) el.textContent = "保存済み " + new Date().toLocaleTimeString("ja-JP");
+  };
+  root.querySelectorAll("[data-lfield]").forEach(el=>{
+    el.addEventListener("input", ()=>{ lesson[el.dataset.lfield] = el.value; save(); });
+  });
+  document.getElementById("lessonCourse").addEventListener("change", (e)=>{ lesson.courseId = e.target.value || null; save(); });
+  document.getElementById("lessonStatus").addEventListener("change", (e)=>{ lesson.status = e.target.value; save(); });
+}
+
+// ===== 日のコマ一覧ヘルパー（今日／日エリア共通）=====
+async function buildDayCells(date){
+  const lessons = await getLessonsInRange(date, date);
+  const lmap = new Map(lessons.map(l=>[l.period, l]));
+  const dow = dayOfWeek(date);
+  return PERIODS.map(p=>{
+    const base = state.baseSlots.find(b=>b.dayOfWeek===dow && b.period===p.code) || null;
+    const lesson = lmap.get(p.code) || null;
+    const courseId = (lesson && lesson.courseId) || (base && base.courseId) || null;
+    return { date, period:p.code, base, lesson, courseId,
+      course: state.courses.find(c=>c.id===courseId) || null,
+      hasRecord: lesson ? computeHasRecord(lesson) : false,
+      status: lesson ? lesson.status || "normal" : "normal" };
+  });
+}
+function dayNoteOf(date){ return state.eventsCache.find(e=>e.category==="daynote" && e.startDate===date) || null; }
+function cellTitle(cell){
+  if (cell.course) return `${cell.course.subject} ${cell.course.name}（${cell.course.classLabel}）`;
+  if (cell.base && cell.base.label) return cell.base.label;
+  if (cell.base) return categoryLabelForKind(cell.base.kind);
+  return "（予定なし）";
+}
+
+// ===== ホーム（業務エリア・ランチャー §8.5-1）=====
+async function renderHome(root){
+  const today = todayString();
+  const cells = await buildDayCells(today);
+  const nowP = currentPeriodCode();
+  const nextCell = cells.find(c=>c.period>=nowP && (c.base || c.lesson)) || cells.find(c=>c.base || c.lesson) || null;
+  const evs = eventsOnDate(state.eventsCache, today).filter(isRealEvent);
+  const dn = dayNoteOf(today);
+  const areaBtns = AREAS.filter(a=>a.enabled && a.showOnHome).map(a=>
+    `<button class="btn ghost" data-home-area="${a.id}" style="text-align:left;padding:18px;min-height:96px">
+       <span style="font-size:24px">${a.icon||""} ${esc(a.name)}</span><br><span class="muted" style="font-size:14px">${esc(a.desc||"")}</span>
+     </button>`).join("");
+  root.innerHTML = `
+    <h2 class="viewtitle">ホーム ― 業務エリア</h2>
+    <div class="card">
+      <strong style="font-size:19px;color:var(--navy)">今日 ${esc(today)}（${WEEKDAY_LABELS[dayOfWeek(today)]}）の要約</strong>
+      ${nextCell?`<p>次のコマ：<strong>${esc(periodLabel(nextCell.period))} ${esc(cellTitle(nextCell))}</strong>
+        <button class="btn small gold" id="homeNextLesson">授業記録を開く</button>
+        <button class="btn small ghost" id="homeNextSheet">コマシート</button></p>`:`<p class="muted">今日の基本時間割は未登録です（設定から登録できます）。</p>`}
+      ${evs.length?`<p>今日の行事：${evs.map(e=>`<span class="badge" style="background:${categoryColor(e.category)}">${esc(categoryLabel(e.category))}</span> ${esc(e.title)}`).join(" ／ ")}</p>`:`<p class="muted">今日の行事はありません。</p>`}
+      ${dn?`<p>今日の一言：✎ ${esc(mask(dn.title))}</p>`:""}
+      <button class="btn small" id="homeGoToday">📍 今日の画面を開く</button>
+      <button class="btn small ghost" id="homeGoDay">📝 今日の日エリア</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px">${areaBtns}</div>
+    <p class="muted">カレンダーのコマ枠も入口の1つです。ホーム・今日・講座・カレンダー、どの入口からも同じ授業記録エリア／日エリアへ届きます。</p>`;
+  root.querySelectorAll("[data-home-area]").forEach(b=>b.addEventListener("click", ()=>{ state.view = b.dataset.homeArea; render(); }));
+  document.getElementById("homeGoToday").onclick = ()=>{ state.view="today"; render(); };
+  document.getElementById("homeGoDay").onclick = ()=>{ state.selectedDate = today; state.view="day"; render(); };
+  if (nextCell){
+    document.getElementById("homeNextLesson").onclick = ()=>{ state.selectedDate=today; state.selectedPeriod=nextCell.period; state.view="lesson"; render(); };
+    document.getElementById("homeNextSheet").onclick = ()=>openSlotSheet(today, nextCell.period);
+  }
+}
+
+// ===== 今日画面（§8.5-2）=====
+async function renderToday(root){
+  const today = todayString();
+  const cells = await buildDayCells(today);
+  const nowP = currentPeriodCode();
+  const evs = eventsOnDate(state.eventsCache, today).filter(isRealEvent);
+  const dn = dayNoteOf(today);
+  root.innerHTML = `
+    <div class="rowflex"><button class="btn small ghost" id="tHome">🏠 ホーム</button>
+    <button class="btn small ghost" id="tDay">📝 今日の日エリア</button>
+    <button class="btn small ghost" id="tWeek">🗓 週案で見る</button></div>
+    <h2 class="viewtitle">今日 ― ${esc(today)}（${WEEKDAY_LABELS[dayOfWeek(today)]}）</h2>
+    <div class="card"><h3 class="sect" style="margin-top:0">今日の一言メモ（日メモ）</h3>
+      ${dn?`<p>✎ ${esc(mask(dn.title))}${dn.memo?`<br><span class="muted">${esc(mask(dn.memo))}</span>`:""}</p>`:`<p class="muted">まだ書かれていません。</p>`}
+      <button class="btn small" id="tEditNote">日エリアで編集</button></div>
+    <div class="card"><h3 class="sect" style="margin-top:0">今日の行事</h3>
+      ${evs.length? evs.map(e=>`<div class="listitem" data-ev="${e.id}"><span class="dot" style="background:${categoryColor(e.category)}"></span><span class="t">${esc(e.title)}</span> <span class="muted">${esc(categoryLabel(e.category))} ${e.startDate!==e.endDate?esc(e.startDate)+"〜"+esc(e.endDate):""}</span>${e.memo?`<br>${esc(mask(e.memo))}`:""}</div>`).join("") : `<p class="muted">行事はありません。</p>`}
+    </div>
+    <h3 class="sect">今日のコマ（今の時限を強調）</h3>
+    ${cells.map(c=>`
+      <div class="listitem" style="${c.period===nowP?"outline:3px solid var(--gold);background:#fdf6dd":""}${c.status!=="normal"?";opacity:.92":""}">
+        <span class="t">${esc(periodLabel(c.period))}</span> ${esc(cellTitle(c))}
+        ${c.period===nowP?`<span class="badge">今の時限</span>`:""}
+        ${c.hasRecord?`<span class="badge">記録あり</span>`:""}
+        ${c.status!=="normal"?`【${esc(statusLabel(c.status))}】`:""}
+        ${c.lesson&&c.lesson.unit?`<br>単元：${esc(c.lesson.unit)}`:""}
+        ${c.lesson&&c.lesson.shortMemo?`<br>✎ ${esc(mask(c.lesson.shortMemo))}`:""}
+        <div class="rowflex" style="margin-top:6px">
+          <button class="btn small gold" data-t-lesson="${c.period}">授業記録を開く</button>
+          <button class="btn small ghost" data-t-sheet="${c.period}">コマシート</button>
+        </div>
+      </div>`).join("")}`;
+  document.getElementById("tHome").onclick = ()=>{ state.view="home"; render(); };
+  document.getElementById("tDay").onclick = ()=>{ state.selectedDate=today; state.view="day"; render(); };
+  document.getElementById("tEditNote").onclick = ()=>{ state.selectedDate=today; state.view="day"; render(); };
+  document.getElementById("tWeek").onclick = ()=>{ state.weekMonday = mondayOfWeek(today); state.view="week"; render(); };
+  root.querySelectorAll("[data-t-lesson]").forEach(b=>b.onclick=()=>{ state.selectedDate=today; state.selectedPeriod=Number(b.dataset.tLesson); state.view="lesson"; render(); });
+  root.querySelectorAll("[data-t-sheet]").forEach(b=>b.onclick=()=>openSlotSheet(today, Number(b.dataset.tSheet)));
+  root.querySelectorAll("[data-ev]").forEach(el=>el.onclick=()=>{ const ev = state.eventsCache.find(e=>e.id===el.dataset.ev); if (ev) openEventSheet(ev); });
+}
+
+// ===== 講座一覧／講座別記録一覧（§8.5-4）=====
+async function renderCourses(root){
+  const counts = {};
+  for (const c of state.courses) counts[c.id] = await countLessonsByCourse(c.id);
+  root.innerHTML = `
+    <div class="rowflex"><button class="btn small ghost" id="cHome">🏠 ホーム</button></div>
+    <h2 class="viewtitle">講座一覧 ― ${state.currentYearId}年度</h2>
+    ${state.courses.length? state.courses.map(c=>`
+      <div class="listitem" data-course="${c.id}">
+        <span class="t">${esc(c.subject)} ${esc(c.name)}</span>（${esc(c.classLabel)}）
+        <br><span class="muted">週${c.weeklyPeriods}コマ ／ 年間標準 ${c.standardHours} 時間 ／ 記録済み ${counts[c.id]} コマ</span>
+      </div>`).join("") : `<div class="card">講座が登録されていません。設定画面から追加できます。</div>`}`;
+  document.getElementById("cHome").onclick = ()=>{ state.view="home"; render(); };
+  root.querySelectorAll("[data-course]").forEach(el=>el.onclick=()=>{ state.selectedCourseId = el.dataset.course; state.view="course"; render(); });
+}
+async function renderCourse(root){
+  const course = state.courses.find(c=>c.id===state.selectedCourseId);
+  if (!course){ state.view="courses"; renderCourses(root); return; }
+  const lessons = (await dbGetByIndex("lessons", "byCourse", course.id))
+    .slice().sort((a,b)=> a.date!==b.date ? (a.date<b.date?-1:1) : a.period-b.period);
+  root.innerHTML = `
+    <div class="rowflex"><button class="btn small ghost" id="coBack">◀ 講座一覧</button>
+    <button class="btn small ghost" id="coHome">🏠 ホーム</button></div>
+    <h2 class="viewtitle">講座の記録 ― ${esc(course.subject)} ${esc(course.name)}（${esc(course.classLabel)}）</h2>
+    <p class="muted">週${course.weeklyPeriods}コマ ／ 年間標準 ${course.standardHours} 時間 ／ 記録済み ${lessons.length} コマ（byCourse 索引で時系列表示）</p>
+    ${lessons.length? lessons.map(l=>`
+      <div class="listitem" data-cl="${l.id}">
+        <span class="t">${esc(l.date)}（${WEEKDAY_LABELS[dayOfWeek(l.date)]}） ${esc(periodLabel(l.period))}</span>
+        ${l.status!=="normal"?`【${esc(statusLabel(l.status))}】`:""}
+        ${l.unit?`<br>単元：${esc(l.unit)}`:""}
+        ${l.progress?`<br>進度：${esc(l.progress)}`:""}
+        ${l.shortMemo?`<br>✎ ${esc(mask(l.shortMemo))}`:""}
+        ${l.handoff?`<br>申し送り：${esc(mask(l.handoff))}`:""}
+      </div>`).join("") : `<div class="card">この講座の授業記録はまだありません。週案や今日の画面のコマから記録を始められます。</div>`}`;
+  document.getElementById("coBack").onclick = ()=>{ state.view="courses"; render(); };
+  document.getElementById("coHome").onclick = ()=>{ state.view="home"; render(); };
+  root.querySelectorAll("[data-cl]").forEach(el=>el.onclick=()=>{
+    const l = lessons.find(x=>x.id===el.dataset.cl);
+    state.selectedDate = l.date; state.selectedPeriod = l.period; state.view="lesson"; render();
+  });
+}
+
+// ===== 日エリア（§8.2）=====
+async function renderDay(root){
+  const date = state.selectedDate;
+  const cells = await buildDayCells(date);
+  const dn = dayNoteOf(date);
+  const evs = eventsOnDate(state.eventsCache, date).filter(isRealEvent);
+  root.innerHTML = `
+    <div class="rowflex"><button class="btn small ghost" id="dHome">🏠 ホーム</button>
+    <button class="btn small ghost" id="dWeek">🗓 週案</button>
+    <button class="btn small ghost" id="dMonth">📅 月間</button>
+    <button class="btn small ghost" id="dPrev">◀ 前日</button>
+    <button class="btn small ghost" id="dNext">翌日 ▶</button></div>
+    <h2 class="viewtitle">日エリア ― ${esc(date)}（${WEEKDAY_LABELS[dayOfWeek(date)]}）</h2>
+    <div class="card"><h3 class="sect" style="margin-top:0">① その日の一言メモ</h3>
+      <label class="f">一言</label>
+      <input class="t" id="dnTitle" value="${esc(state.privacyOn?mask(dn?dn.title:""):(dn?dn.title:""))}" ${state.privacyOn?"disabled":""} placeholder="例：文化祭準備で慌ただしい一日">
+      <label class="f">詳細メモ</label>
+      <textarea class="t" id="dnMemo" ${state.privacyOn?"disabled":""} placeholder="その日の出来事・気づきなど">${esc(state.privacyOn?mask(dn?dn.memo:""):(dn?dn.memo:""))}</textarea>
+      <div class="savednote" id="dnSaved">入力すると自動保存されます。</div></div>
+    <div class="card"><h3 class="sect" style="margin-top:0">② その日の行事</h3>
+      ${evs.length? evs.map(e=>`<div class="listitem" data-dev="${e.id}"><span class="dot" style="background:${categoryColor(e.category)}"></span><span class="t">${esc(e.title)}</span> <span class="muted">${esc(categoryLabel(e.category))} ${e.startDate!==e.endDate?esc(e.startDate)+"〜"+esc(e.endDate):""}</span>${e.memo?`<br>${esc(mask(e.memo))}`:""}</div>`).join("") : `<p class="muted">行事はありません。</p>`}
+      <button class="btn small gold" id="dAddEvent">＋ 行事を追加</button></div>
+    <h3 class="sect">③ その日のコマ</h3>
+    ${cells.map(c=>`
+      <div class="listitem">
+        <span class="t">${esc(periodLabel(c.period))}</span> ${esc(cellTitle(c))}
+        ${c.hasRecord?`<span class="badge">記録あり</span>`:""} ${c.status!=="normal"?`【${esc(statusLabel(c.status))}】`:""}
+        ${c.lesson&&c.lesson.unit?`<br>単元：${esc(c.lesson.unit)}`:""}
+        ${c.lesson&&c.lesson.shortMemo?`<br>✎ ${esc(mask(c.lesson.shortMemo))}`:""}
+        <div class="rowflex" style="margin-top:6px">
+          <button class="btn small gold" data-d-lesson="${c.period}">授業記録を開く</button>
+          <button class="btn small ghost" data-d-sheet="${c.period}">コマシート</button>
+        </div></div>`).join("")}`;
+  document.getElementById("dHome").onclick=()=>{ state.view="home"; render(); };
+  document.getElementById("dWeek").onclick=()=>{ state.weekMonday = mondayOfWeek(date); state.view="week"; render(); };
+  document.getElementById("dMonth").onclick=()=>{ state.monthCursor = date.slice(0,7); state.view="month"; render(); };
+  document.getElementById("dPrev").onclick=()=>{ state.selectedDate = addDays(date,-1); render(); };
+  document.getElementById("dNext").onclick=()=>{ state.selectedDate = addDays(date,1); render(); };
+  document.getElementById("dAddEvent").onclick=()=>openEventSheet(null, date);
+  root.querySelectorAll("[data-dev]").forEach(el=>el.onclick=()=>{ const ev = state.eventsCache.find(e=>e.id===el.dataset.dev); if (ev) openEventSheet(ev); });
+  root.querySelectorAll("[data-d-lesson]").forEach(b=>b.onclick=()=>{ state.selectedPeriod=Number(b.dataset.dLesson); state.view="lesson"; render(); });
+  root.querySelectorAll("[data-d-sheet]").forEach(b=>b.onclick=()=>openSlotSheet(date, Number(b.dataset.dSheet)));
+  const saveDn = async ()=>{
+    const title = document.getElementById("dnTitle").value;
+    const memo = document.getElementById("dnMemo").value;
+    let rec = dayNoteOf(date);
+    if (!title.trim() && !memo.trim()){
+      if (rec){ await dbDelete("events", rec.id); state.eventsCache = state.eventsCache.filter(e=>e.id!==rec.id); }
+      return;
+    }
+    if (!rec){ rec = { id: uuid(), yearId: state.currentYearId, category:"daynote", startDate: date, endDate: date, level:1 }; state.eventsCache.push(rec); }
+    rec.title = title; rec.memo = memo; rec.yearId = state.currentYearId;
+    await dbPut("events", rec);
+    const el = document.getElementById("dnSaved"); if (el) el.textContent = "保存済み " + new Date().toLocaleTimeString("ja-JP");
+  };
+  ["dnTitle","dnMemo"].forEach(id=>{ const el=document.getElementById(id); if (el) el.addEventListener("input", saveDn); });
+}
+
+// ===== 行事編集シート =====
+function openEventSheet(ev, defaultDate){
+  const isNew = !ev;
+  ev = ev || { id: uuid(), yearId: state.currentYearId, title:"", startDate: defaultDate||state.selectedDate, endDate: defaultDate||state.selectedDate, category:"event", memo:"", level:1 };
+  openSheet(`
+    <h3 class="sect" style="margin-top:0">${isNew?"行事を追加":"行事を編集"}</h3>
+    <label class="f">タイトル</label><input class="t" id="evTitle" value="${esc(ev.title)}">
+    <div class="rowflex"><div style="flex:1"><label class="f">開始日</label><input class="t" type="date" id="evStart" value="${esc(ev.startDate)}"></div>
+    <div style="flex:1"><label class="f">終了日</label><input class="t" type="date" id="evEnd" value="${esc(ev.endDate)}"></div></div>
+    <label class="f">カテゴリ</label>
+    <select class="t" id="evCat">${EVENT_CATEGORIES.filter(c=>c.id!=="daynote").map(c=>`<option value="${c.id}" ${ev.category===c.id?"selected":""}>${c.label}</option>`).join("")}</select>
+    <label class="f">メモ</label><textarea class="t" id="evMemo">${esc(ev.memo||"")}</textarea>
+    <div class="rowflex" style="margin-top:16px">
+      <button class="btn gold" id="evSave">保存する</button>
+      ${isNew?"":`<button class="btn danger" id="evDelete">削除</button>`}
+      <button class="btn ghost" id="evCancel">キャンセル</button></div>`);
+  document.getElementById("evCancel").onclick = ()=>closeSheet();
+  document.getElementById("evSave").onclick = async ()=>{
+    ev.title = document.getElementById("evTitle").value.trim() || "（無題）";
+    ev.startDate = document.getElementById("evStart").value || ev.startDate;
+    ev.endDate = document.getElementById("evEnd").value || ev.startDate;
+    if (ev.endDate < ev.startDate) ev.endDate = ev.startDate;
+    ev.category = document.getElementById("evCat").value;
+    ev.memo = document.getElementById("evMemo").value;
+    ev.yearId = state.currentYearId; ev.level = 1;
+    await dbPut("events", ev);
+    const i = state.eventsCache.findIndex(e=>e.id===ev.id);
+    if (i>=0) state.eventsCache[i]=ev; else state.eventsCache.push(ev);
+    closeSheet(); toast("行事を保存しました"); render();
+  };
+  const del = document.getElementById("evDelete");
+  if (del) del.onclick = async ()=>{ await dbDelete("events", ev.id); state.eventsCache = state.eventsCache.filter(e=>e.id!==ev.id); closeSheet(); render(); };
+}
+
+// ===== 月間ビュー =====
+async function renderMonth(root){
+  if (!state.monthCursor) state.monthCursor = todayString().slice(0,7);
+  const [cy, cm] = state.monthCursor.split("-").map(Number);
+  const first = formatDate(cy, cm, 1);
+  const last = formatDate(cy, cm, daysInMonth(cy, cm));
+  const lessons = await getLessonsInRange(first, last);
+  const recDates = new Set(lessons.filter(l=>computeHasRecord(l)).map(l=>l.date));
+  const gridStart = addDays(first, -dayOfWeek(first));
+  let cellsHtml = "";
+  for (let i=0;i<42;i++){
+    const d = addDays(gridStart, i);
+    const inMonth = d.slice(0,7)===state.monthCursor;
+    const evs = eventsOnDate(state.eventsCache, d).filter(isRealEvent);
+    const dn = inMonth ? dayNoteOf(d) : null;
+    cellsHtml += `<td class="${inMonth?"":"out"} ${d===todayString()?"today":""}" ${inMonth?`data-mdate="${d}"`:""}>
+      <strong>${Number(d.slice(8))}</strong> ${recDates.has(d)?`<span class="recdot" title="記録あり">●</span>`:""}
+      <br>${evs.map(e=>`<span class="dot" style="background:${categoryColor(e.category)}" title="${esc(e.title)}"></span>`).join("")}
+      ${dn&&dn.title?`<div class="daynote-mini">✎ ${esc(mask(dn.title)).slice(0,40)}</div>`:""}
+    </td>`;
+    if (i%7===6) cellsHtml += "</tr><tr>";
+  }
+  root.innerHTML = `
+    <div class="rowflex"><button class="btn small ghost" id="mHome">🏠 ホーム</button></div>
+    <h2 class="viewtitle">月間 ― ${cy}年${cm}月</h2>
+    <div class="weeknav"><button class="btn small ghost" id="mPrev">◀ 前月</button>
+    <button class="btn small ghost" id="mThis">今月</button><button class="btn small ghost" id="mNext">翌月 ▶</button></div>
+    <table class="cal"><tr>${WEEKDAY_LABELS.map(w=>`<th>${w}</th>`).join("")}</tr><tr>${cellsHtml}</tr></table>
+    <p class="muted">色ドット＝行事カテゴリ、<span class="recdot">●</span>＝記録あり。日をタップすると日エリアが開きます。</p>`;
+  document.getElementById("mHome").onclick=()=>{ state.view="home"; render(); };
+  document.getElementById("mPrev").onclick=()=>{ state.monthCursor = addMonths(first,-1).slice(0,7); render(); };
+  document.getElementById("mNext").onclick=()=>{ state.monthCursor = addMonths(first,1).slice(0,7); render(); };
+  document.getElementById("mThis").onclick=()=>{ state.monthCursor = todayString().slice(0,7); render(); };
+  root.querySelectorAll("[data-mdate]").forEach(td=>td.onclick=()=>{ state.selectedDate = td.dataset.mdate; state.view="day"; render(); });
+}
+
+// ===== 年間ビュー =====
+async function renderYear(root){
+  const yid = state.currentYearId;
+  const examEvents = state.eventsCache.filter(e=>e.category==="exam");
+  const examDates = new Set();
+  for (const e of examEvents){ let d = e.startDate; let guard=0; while (d<=e.endDate && guard++<370){ examDates.add(d); d = addDays(d,1); } }
+  const termOf = (d)=>{ const t = termForDate(state.terms, d); return t ? t.name : ""; };
+  const minis = academicMonths(yid).map(({year, month})=>{
+    const first = formatDate(year, month, 1);
+    const start = addDays(first, -dayOfWeek(first));
+    let rows = "";
+    for (let i=0;i<42;i++){
+      const d = addDays(start, i);
+      const inM = Number(d.slice(5,7))===month && Number(d.slice(0,4))===year;
+      rows += `<td class="${inM?"has":""}" style="${examDates.has(d)&&inM?"background:#f3d9d9;font-weight:700":""}">${inM?Number(d.slice(8)):""}</td>`;
+      if (i%7===6) rows += "</tr><tr>";
+    }
+    return `<div class="card" style="padding:10px"><strong>${month}月</strong> <span class="muted">${esc(termOf(first))}</span>
+      <table class="cal minical"><tr>${rows}</tr></table></div>`;
+  }).join("");
+  let counters = "";
+  for (const c of state.courses){
+    const cnt = await countLessonsByCourse(c.id); // 件数カウントのみ（本体は読まない）
+    const pct = c.standardHours>0 ? Math.min(100, Math.round(cnt/c.standardHours*100)) : 0;
+    counters += `<div class="listitem" data-y-course="${c.id}"><span class="t">${esc(c.subject)} ${esc(c.name)}</span>（${esc(c.classLabel)}）
+      <br>記録済み ${cnt} ／ 年間標準 ${c.standardHours} 時間（${pct}%）
+      <div class="counterbar"><div style="width:${pct}%"></div></div></div>`;
+  }
+  root.innerHTML = `
+    <div class="rowflex"><button class="btn small ghost" id="yHome">🏠 ホーム</button>
+    <button class="btn small ghost" id="yAddEvent">＋ 行事・考査期間を追加</button></div>
+    <h2 class="viewtitle">年間 ― ${yid}年度（4月〜3月）</h2>
+    <h3 class="sect">学期・考査期間</h3>
+    ${state.terms.map((t,i)=>`<div class="termband" style="background:${["#3b6ea5","#3d7a4e","#7a4b9e"][i%3]}">${esc(t.name)}：${esc(t.startDate)} 〜 ${esc(t.endDate)}</div>`).join("")}
+    ${examEvents.map(e=>`<div class="termband" style="background:#a33b3b">考査：${esc(e.title)}（${esc(e.startDate)} 〜 ${esc(e.endDate)}）</div>`).join("")}
+    <h3 class="sect">講座別カウンター（標準時数 vs 記録済みコマ数）</h3>
+    ${counters || `<p class="muted">講座が未登録です。</p>`}
+    <h3 class="sect">12か月ミニカレンダー（ピンク＝考査期間）</h3>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px">${minis}</div>`;
+  document.getElementById("yHome").onclick=()=>{ state.view="home"; render(); };
+  document.getElementById("yAddEvent").onclick=()=>openEventSheet(null, todayString());
+  root.querySelectorAll("[data-y-course]").forEach(el=>el.onclick=()=>{ state.selectedCourseId = el.dataset.yCourse; state.view="course"; render(); });
+}
+
+// ===== 基本時間割エディタ（設定／ウィザード共用）=====
+function slotEditorHTML(prefix){
+  let h = `<table class="slotgrid"><tr><th></th>${[1,2,3,4,5,6].map(d=>`<th>${WEEKDAY_LABELS[d]}</th>`).join("")}</tr>`;
+  for (const p of PERIODS){
+    h += `<tr><td class="plabel" style="width:40px">${esc(p.label)}</td>`;
+    for (let dow=1; dow<=6; dow++){
+      const s = state.baseSlots.find(b=>b.dayOfWeek===dow && b.period===p.code);
+      const sel = state.slotEdit && state.slotEdit.dow===dow && state.slotEdit.period===p.code;
+      const txt = s ? (s.courseId ? esc((state.courses.find(c=>c.id===s.courseId)||{}).name||"授業") : esc(s.label || categoryLabelForKind(s.kind))) : "―";
+      h += `<td class="${s?"filled":""} ${sel?"sel":""}" data-slot="${dow}#${p.code}">${txt}</td>`;
+    }
+    h += `</tr>`;
+  }
+  h += `</table><div id="${prefix}SlotForm"></div>`;
+  return h;
+}
+function bindSlotEditor(root, prefix, rerender){
+  root.querySelectorAll("[data-slot]").forEach(td=>td.onclick=()=>{
+    const [dow, period] = td.dataset.slot.split("#").map(Number);
+    state.slotEdit = { dow, period };
+    rerender();
+  });
+  const form = root.querySelector(`#${prefix}SlotForm`);
+  if (!form || !state.slotEdit) return;
+  const { dow, period } = state.slotEdit;
+  const cur = state.baseSlots.find(b=>b.dayOfWeek===dow && b.period===period) || { kind:"lesson", courseId:null, label:"" };
+  form.innerHTML = `
+    <div class="card" style="margin-top:12px"><strong>${WEEKDAY_LABELS[dow]}曜 ${esc(periodLabel(period))} の基本枠</strong>
+    <label class="f">種別</label>
+    <select class="t" id="${prefix}Kind">${[["lesson","授業"],["homeroom","SHR/LHR"],["club","部活"],["meeting","会議"],["duty","校務"],["other","その他"]].map(([v,l])=>`<option value="${v}" ${cur.kind===v?"selected":""}>${l}</option>`).join("")}</select>
+    <label class="f">講座（授業の場合）</label>
+    <select class="t" id="${prefix}Course"><option value="">（なし）</option>${state.courses.map(c=>`<option value="${c.id}" ${cur.courseId===c.id?"selected":""}>${esc(c.subject)} ${esc(c.name)}（${esc(c.classLabel)}）</option>`).join("")}</select>
+    <label class="f">ラベル（部活・会議など）</label>
+    <input class="t" id="${prefix}Label" value="${esc(cur.label||"")}" placeholder="例：学年会、サッカー部">
+    <div class="rowflex" style="margin-top:12px"><button class="btn small gold" id="${prefix}Save">この枠を保存</button>
+    ${cur.id?`<button class="btn small danger" id="${prefix}Del">この枠を削除</button>`:""}</div></div>`;
+  form.querySelector(`#${prefix}Save`).onclick = async ()=>{
+    const rec = { id: cur.id || uuid(), yearId: state.currentYearId, dayOfWeek: dow, period,
+      kind: form.querySelector(`#${prefix}Kind`).value,
+      courseId: form.querySelector(`#${prefix}Course`).value || null,
+      label: form.querySelector(`#${prefix}Label`).value, level: 1 };
+    await dbPut("baseSlots", rec);
+    state.baseSlots = await getBaseSlotsByYear(state.currentYearId);
+    toast("基本時間割を保存しました"); rerender();
+  };
+  const del = form.querySelector(`#${prefix}Del`);
+  if (del) del.onclick = async ()=>{ await dbDelete("baseSlots", cur.id); state.baseSlots = await getBaseSlotsByYear(state.currentYearId); state.slotEdit=null; rerender(); };
+}
+
+// ===== 設定画面 =====
+async function renderSettings(root){
+  const s = settings();
+  root.innerHTML = `
+    <div class="rowflex"><button class="btn small ghost" id="sHome">🏠 ホーム</button></div>
+    <h2 class="viewtitle">設定</h2>
+    <div class="card"><h3 class="sect" style="margin-top:0">年度の管理</h3>
+      <p>現在の年度：<strong>${state.currentYearId}年度</strong></p>
+      <div class="rowflex">${state.years.map(y=>`<button class="btn small ${y.id===state.currentYearId?"gold":"ghost"}" data-year="${y.id}">${y.id}年度</button>`).join("")}</div>
+      <label class="f">新しい年度を追加</label>
+      <div class="rowflex"><input class="t" id="newYear" type="number" style="max-width:140px" value="${academicYearOf(todayString())+1}">
+      <select class="t" id="newYearSystem" style="max-width:160px"><option value="3">3学期制</option><option value="2">2期制</option></select>
+      <button class="btn small" id="addYear">年度を追加</button></div>
+      <h3 class="sect">学期の日付（${state.currentYearId}年度）</h3>
+      ${state.terms.map(t=>`<div class="rowflex" style="margin-bottom:8px"><strong style="min-width:70px">${esc(t.name)}</strong>
+        <input class="t" type="date" style="max-width:170px" id="ts-${t.id}" value="${t.startDate}">
+        <span>〜</span><input class="t" type="date" style="max-width:170px" id="te-${t.id}" value="${t.endDate}">
+        <button class="btn small ghost" data-term-save="${t.id}">保存</button></div>`).join("")}
+    </div>
+    <div class="card"><h3 class="sect" style="margin-top:0">講座の管理</h3>
+      ${state.courses.map(c=>`<div class="listitem"><span class="t">${esc(c.subject)} ${esc(c.name)}</span>（${esc(c.classLabel)}）週${c.weeklyPeriods}コマ／標準${c.standardHours}時間
+        <button class="btn small danger" data-course-del="${c.id}" style="float:right">削除</button></div>`).join("")}
+      <label class="f">教科</label><input class="t" id="ncSubject" placeholder="数学">
+      <label class="f">講座名</label><input class="t" id="ncName" placeholder="数学I">
+      <label class="f">クラス</label><input class="t" id="ncClass" placeholder="2年A組">
+      <div class="rowflex"><div style="flex:1"><label class="f">週コマ数</label><input class="t" id="ncWeekly" type="number" value="4"></div>
+      <div style="flex:1"><label class="f">年間標準時数</label><input class="t" id="ncHours" type="number" value="140"></div></div>
+      <button class="btn small gold" id="addCourse" style="margin-top:10px">講座を追加</button></div>
+    <div class="card"><h3 class="sect" style="margin-top:0">基本時間割の編集</h3><div id="settingsSlots">${slotEditorHTML("set")}</div></div>
+    <div class="card"><h3 class="sect" style="margin-top:0">セキュリティ・表示</h3>
+      <label class="f">PIN変更（現在のPIN → 新しいPIN 4〜6桁）</label>
+      <div class="rowflex"><input class="t" id="pinCur" type="password" inputmode="numeric" style="max-width:150px" placeholder="現在のPIN">
+      <input class="t" id="pinNew" type="password" inputmode="numeric" style="max-width:150px" placeholder="新しいPIN">
+      <button class="btn small" id="changePin">PINを変更</button></div>
+      <div class="savednote" id="pinMsg"></div>
+      <label class="f">自動ロック（無操作）</label>
+      <select class="t" id="autoLockSel" style="max-width:200px">${[1,2,3,4,5,6,7,8,9,10].map(m=>`<option value="${m}" ${autoLockMinutes()===m?"selected":""}>${m}分</option>`).join("")}</select>
+      <label class="f"><input type="checkbox" id="privacyDefault" ${s.privacyDefault?"checked":""} style="width:22px;height:22px;vertical-align:middle"> 起動時のプライバシーモードを既定で ON にする</label>
+    </div>
+    <div class="card"><h3 class="sect" style="margin-top:0">このアプリについて</h3>
+      <p>KyomuNote（デジタル教務手帳）第1期 バージョン <strong>${APP_VERSION}</strong><br>
+      <span class="muted">データはこの端末の IndexedDB（KyomuNoteDB）にのみ保存され、外部へ送信されません。</span></p>
+      <button class="btn gold" id="updateBtn">最新の版に更新する</button></div>`;
+  document.getElementById("sHome").onclick=()=>{ state.view="home"; render(); };
+  root.querySelectorAll("[data-year]").forEach(b=>b.onclick=async ()=>{
+    state.currentYearId = Number(b.dataset.year); saveSettings({ currentYearId: state.currentYearId });
+    await loadYearData(); state.monthCursor=null; render();
+  });
+  document.getElementById("addYear").onclick = async ()=>{
+    const yid = Number(document.getElementById("newYear").value);
+    if (!yid) return;
+    if (state.years.some(y=>y.id===yid)){ toast("その年度は既にあります"); return; }
+    const sys = document.getElementById("newYearSystem").value;
+    const r = yearRange(yid);
+    await dbPut("years", { id: yid, startDate: r.startDate, endDate: r.endDate, termSystem: sys, archived: false });
+    for (const t of defaultTerms(yid, sys)) await dbPut("terms", t);
+    state.years = (await dbGetAll("years")).sort((a,b)=>a.id-b.id);
+    state.currentYearId = yid; saveSettings({ currentYearId: yid });
+    await loadYearData(); toast(`${yid}年度を作成しました`); render();
+  };
+  root.querySelectorAll("[data-term-save]").forEach(b=>b.onclick=async ()=>{
+    const t = state.terms.find(x=>x.id===b.dataset.termSave);
+    t.startDate = document.getElementById(`ts-${t.id}`).value || t.startDate;
+    t.endDate = document.getElementById(`te-${t.id}`).value || t.endDate;
+    await dbPut("terms", t); toast("学期を保存しました"); render();
+  });
+  document.getElementById("addCourse").onclick = async ()=>{
+    const rec = { id: uuid(), yearId: state.currentYearId,
+      subject: document.getElementById("ncSubject").value.trim(), name: document.getElementById("ncName").value.trim(),
+      classLabel: document.getElementById("ncClass").value.trim(),
+      weeklyPeriods: Number(document.getElementById("ncWeekly").value)||0,
+      standardHours: Number(document.getElementById("ncHours").value)||0, level: 1 };
+    if (!rec.name){ toast("講座名を入力してください"); return; }
+    await dbPut("courses", rec); state.courses = await getCoursesByYear(state.currentYearId);
+    toast("講座を追加しました"); render();
+  };
+  root.querySelectorAll("[data-course-del]").forEach(b=>b.onclick=async ()=>{
+    await dbDelete("courses", b.dataset.courseDel);
+    state.courses = await getCoursesByYear(state.currentYearId); render();
+  });
+  bindSlotEditor(root, "set", ()=>renderSettings(root));
+  document.getElementById("changePin").onclick = async ()=>{
+    const cur = document.getElementById("pinCur").value;
+    const nw = document.getElementById("pinNew").value;
+    const msg = document.getElementById("pinMsg");
+    if (!isValidPin(nw)){ msg.textContent = "新しいPINは4〜6桁の数字にしてください。"; return; }
+    const key = await deriveKey(cur, state.security.salt, state.security.iterations);
+    if (!(await verifyKeyCheck(key, state.security.keyCheck))){ msg.textContent = "現在のPINが違います。"; return; }
+    const made = await createSecurity(nw);
+    state.security = made.rec; state.key = made.key;
+    msg.textContent = "PINを変更しました。";
+  };
+  document.getElementById("autoLockSel").onchange = (e)=>{ saveSettings({ autoLockMin: Number(e.target.value) }); toast(`自動ロックを ${e.target.value} 分に設定しました`); };
+  document.getElementById("privacyDefault").onchange = (e)=>{ saveSettings({ privacyDefault: e.target.checked }); };
+  document.getElementById("updateBtn").onclick = ()=>{
+    const url = new URL(location.href); url.searchParams.set("v", Date.now());
+    location.replace(url.toString());
+  };
+}
+
+// ===== 初回ウィザード =====
+function startWizard(step){
+  document.getElementById("lockScreen").classList.add("hidden");
+  document.getElementById("appHeader").classList.add("hidden");
+  document.getElementById("viewRoot").classList.add("hidden");
+  document.getElementById("wizardScreen").classList.remove("hidden");
+  state.wizard = { step: step || 1 };
+  renderWizard();
+}
+function wizHead(step, title){
+  return `<div class="logotitle"><div class="big" style="font-size:30px">KyomuNote</div>
+  <div class="sub">デジタル教務手帳 ― 初回セットアップ</div></div>
+  <p class="wizstep">ステップ ${step} / 4</p><h2 class="viewtitle">${title}</h2>`;
+}
+function renderWizard(){
+  const box = document.getElementById("wizardBox");
+  const w = state.wizard;
+  if (w.step===1){
+    box.innerHTML = `${wizHead(1,"PINを設定しましょう")}
+      <p>アプリを開くためのPIN（数字4〜6桁）を決めてください。<strong>6桁がおすすめ</strong>です。PINは端末の外に出ません。</p>
+      <label class="f">PIN</label><input class="t" id="wzPin" type="password" inputmode="numeric" maxlength="6" style="font-size:24px" placeholder="4〜6桁">
+      <label class="f">PIN（確認）</label><input class="t" id="wzPin2" type="password" inputmode="numeric" maxlength="6" style="font-size:24px">
+      <div class="lockmsg" id="wzMsg"></div>
+      <button class="btn gold" id="wzNext1" style="width:100%;margin-top:10px">次へ ― 年度の作成</button>`;
+    document.getElementById("wzNext1").onclick = async ()=>{
+      const p1 = document.getElementById("wzPin").value, p2 = document.getElementById("wzPin2").value;
+      if (!isValidPin(p1)){ document.getElementById("wzMsg").textContent = "PINは数字4〜6桁にしてください。"; return; }
+      if (p1!==p2){ document.getElementById("wzMsg").textContent = "確認用PINが一致しません。"; return; }
+      const made = await createSecurity(p1);
+      state.security = made.rec; state.key = made.key; state.unlocked = true;
+      w.step = 2; renderWizard();
+    };
+    return;
+  }
+  if (w.step===2){
+    const defYear = academicYearOf(todayString());
+    box.innerHTML = `${wizHead(2,"年度を作成しましょう")}
+      <label class="f">年度</label>
+      <select class="t" id="wzYear">${[defYear-1,defYear,defYear+1].map(y=>`<option value="${y}" ${y===defYear?"selected":""}>${y}年度（${y}年4月〜${y+1}年3月）</option>`).join("")}</select>
+      <label class="f">学期制</label>
+      <select class="t" id="wzSystem"><option value="3">3学期制</option><option value="2">2期制（前期・後期）</option></select>
+      <p class="muted">学期の日付は既定の日付で自動作成します。あとから設定画面でいつでも調整できます。</p>
+      <button class="btn gold" id="wzNext2" style="width:100%;margin-top:10px">次へ ― 講座の登録</button>`;
+    document.getElementById("wzNext2").onclick = async ()=>{
+      const yid = Number(document.getElementById("wzYear").value);
+      const sys = document.getElementById("wzSystem").value;
+      const r = yearRange(yid);
+      await dbPut("years", { id: yid, startDate: r.startDate, endDate: r.endDate, termSystem: sys, archived: false });
+      for (const t of defaultTerms(yid, sys)) await dbPut("terms", t);
+      state.years = (await dbGetAll("years")).sort((a,b)=>a.id-b.id);
+      state.currentYearId = yid; saveSettings({ currentYearId: yid });
+      await loadYearData();
+      w.step = 3; renderWizard();
+    };
+    return;
+  }
+  if (w.step===3){
+    box.innerHTML = `${wizHead(3,"担当講座を登録しましょう")}
+      <p class="muted">複数追加できます。あとから設定画面でも追加・変更できます。</p>
+      <div id="wzCourseList">${state.courses.map(c=>`<div class="listitem"><span class="t">${esc(c.subject)} ${esc(c.name)}</span>（${esc(c.classLabel)}）週${c.weeklyPeriods}コマ／標準${c.standardHours}時間</div>`).join("") || `<p class="muted">まだ登録がありません。</p>`}</div>
+      <label class="f">教科</label><input class="t" id="wzSubject" placeholder="数学">
+      <label class="f">講座名</label><input class="t" id="wzName" placeholder="数学I">
+      <label class="f">クラス</label><input class="t" id="wzClass" placeholder="2年A組">
+      <div class="rowflex"><div style="flex:1"><label class="f">週コマ数</label><input class="t" id="wzWeekly" type="number" value="4"></div>
+      <div style="flex:1"><label class="f">年間標準時数</label><input class="t" id="wzHours" type="number" value="140"></div></div>
+      <div class="rowflex" style="margin-top:14px"><button class="btn ghost" id="wzAddCourse">＋ 講座を追加</button>
+      <button class="btn gold" id="wzNext3" style="flex:1">次へ ― 基本時間割の登録</button></div>`;
+    document.getElementById("wzAddCourse").onclick = async ()=>{
+      const rec = { id: uuid(), yearId: state.currentYearId,
+        subject: document.getElementById("wzSubject").value.trim(), name: document.getElementById("wzName").value.trim(),
+        classLabel: document.getElementById("wzClass").value.trim(),
+        weeklyPeriods: Number(document.getElementById("wzWeekly").value)||0,
+        standardHours: Number(document.getElementById("wzHours").value)||0, level: 1 };
+      if (!rec.name){ toast("講座名を入力してください"); return; }
+      await dbPut("courses", rec); state.courses = await getCoursesByYear(state.currentYearId);
+      renderWizard();
+    };
+    document.getElementById("wzNext3").onclick = ()=>{ w.step = 4; renderWizard(); };
+    return;
+  }
+  // step 4
+  box.innerHTML = `${wizHead(4,"基本時間割を登録しましょう")}
+    <p class="muted">表のマスをタップして、種別・講座・ラベルを設定してください。あとから設定画面でも編集できます。</p>
+    <div style="overflow-x:auto">${slotEditorHTML("wz")}</div>
+    <button class="btn gold" id="wzFinish" style="width:100%;margin-top:16px;font-size:20px;padding:16px">完了してホームへ</button>`;
+  bindSlotEditor(box, "wz", renderWizard);
+  document.getElementById("wzFinish").onclick = async ()=>{
+    document.getElementById("wizardScreen").classList.add("hidden");
+    state.slotEdit = null;
+    await enterApp();
+  };
+}
+
+// ===== 起動 =====
+(async function boot(){
+  try {
+    await openDB();
+    let schema = await dbGet("meta", "schema");
+    if (!schema){ schema = { key:"schema", schemaVersion: 1, createdAt: new Date().toISOString() }; await dbPut("meta", schema); }
+    state.security = await dbGet("meta", "security");
+    if (!state.security){ startWizard(1); }
+    else showLock();
+  } catch(e){
+    document.getElementById("lockScreen").classList.remove("hidden");
+    document.getElementById("lockMsg").textContent = "データベースを開けませんでした：" + (e && e.message ? e.message : e);
+  }
+})();
+</script>
+</body>
+</html>
